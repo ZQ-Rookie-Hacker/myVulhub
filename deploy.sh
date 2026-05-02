@@ -8,6 +8,7 @@ VENV_DIR="$APP_DIR/venv"
 SERVICE_FILE="/etc/systemd/system/$APP_NAME.service"
 PORT=5000
 LOG_DIR="/var/log/$APP_NAME"
+VULHUB_PATH="${VULHUB_PATH:-/opt/vulhub}"
 
 # 创建日志函数
 log() {
@@ -82,12 +83,8 @@ else
     error_exit "未安装 docker-compose，请先安装 Docker Compose"
 fi
 
-log "创建应用目录..."
-mkdir -p "$APP_DIR" || error_exit "无法创建应用目录"
-mkdir -p "$LOG_DIR" || error_exit "无法创建日志目录"
-
-# 检查是否已存在部署
-if [ -d "$APP_DIR" ] && [ -f "$SERVICE_FILE" ]; then
+# 检查是否已存在部署（必须在创建目录前处理）
+if [ -f "$SERVICE_FILE" ]; then
     log "警告: 发现已存在的部署，将进行覆盖安装"
     log "停止现有服务..."
     if systemctl is-active --quiet "$APP_NAME" 2>/dev/null; then
@@ -98,13 +95,16 @@ if [ -d "$APP_DIR" ] && [ -f "$SERVICE_FILE" ]; then
     fi
 fi
 
-# 备份现有文件
-log "备份现有文件（如有）..."
-if [ -d "$APP_DIR" ]; then
+# 备份现有文件（在创建新目录前执行）
+if [ -d "$APP_DIR" ] && [ "$(ls -A "$APP_DIR" 2>/dev/null)" ]; then
     BACKUP_DIR="/tmp/${APP_NAME}_backup_$(date +%Y%m%d_%H%M%S)"
     log "创建备份: $BACKUP_DIR"
     cp -r "$APP_DIR" "$BACKUP_DIR" || log "备份失败，继续执行..."
 fi
+
+log "创建应用目录..."
+mkdir -p "$APP_DIR" || error_exit "无法创建应用目录"
+mkdir -p "$LOG_DIR" || error_exit "无法创建日志目录"
 
 log "复制应用文件..."
 # 检查 rsync 是否存在，如果不存在则使用 cp
@@ -143,7 +143,7 @@ WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin"
 Environment="VULHUB_PATH=${VULHUB_PATH:-/opt/vulhub}"
 Environment="FLASK_ENV=production"
-ExecStart=$VENV_DIR/bin/python app.py
+ExecStart=$VENV_DIR/bin/python run.py
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5
@@ -187,6 +187,11 @@ if systemctl is-active --quiet "$APP_NAME"; then
     log "服务状态: $(systemctl is-active $APP_NAME)"
     log "访问地址: http://$(hostname -I | awk '{print $1}' | cut -d' ' -f1):$PORT"
     log "日志文件: $LOG_DIR/app.log"
+	    log ""
+	    log "重要: 请克隆 vulhub 仓库（服务依赖此目录扫描环境）："
+	    log "  git clone https://github.com/vulhub/vulhub.git $VULHUB_PATH"
+	    log "  (可通过 Web 界面 /api/git-sync 接口同步更新)"
+	    log ""
     log "管理命令:"
     log "  启动服务: systemctl start $APP_NAME"
     log "  停止服务: systemctl stop $APP_NAME"
@@ -195,6 +200,7 @@ if systemctl is-active --quiet "$APP_NAME"; then
     log "  查看日志: journalctl -u $APP_NAME -f"
     log "  服务文件: $SERVICE_FILE"
     log "  应用目录: $APP_DIR"
+	    log "  Vulhub目录: $VULHUB_PATH"
     log "=========================================="
     
     # 测试服务是否可访问

@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exploitFilter')?.addEventListener('change', filterByExploit);
     document.getElementById('runningFilter')?.addEventListener('change', filterByRunning);
     document.getElementById('downloadedFilter')?.addEventListener('change', filterByDownloaded);
+    document.getElementById('btnChangePath')?.addEventListener('click', showChangePathDialog);
+
+    loadVulhubPath();
 });
 
 // 只从缓存加载（不重新扫描）
@@ -1310,4 +1313,114 @@ async function startGitSync() {
         console.error('获取设置失败:', error);
         showNotification('获取 Git 设置失败，请检查网络连接', 'error');
     }
+}
+
+// === Vulhub 路径配置 ===
+async function loadVulhubPath() {
+    try {
+        const resp = await fetch('/api/vulhub-path');
+        const data = await resp.json();
+        const display = document.getElementById('vulhubPathDisplay');
+        if (display && data.path) {
+            display.textContent = data.path;
+            display.title = data.path;
+        }
+    } catch (e) {
+        console.error('加载 vulhub 路径失败:', e);
+    }
+}
+
+function showChangePathDialog() {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.4);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 10000;
+    `;
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+        background: #fff; padding: 24px; border-radius: 12px;
+        max-width: 520px; width: 90%;
+        box-shadow: 0 16px 40px rgba(0,0,0,0.2);
+    `;
+
+    dialog.innerHTML = `
+        <h3 style="margin:0 0 8px 0;">📂 配置 Vulhub 路径</h3>
+        <p style="color:#6b7280; font-size:13px; margin:0 0 16px 0;">
+            请先克隆 vulhub 仓库到你想要的目录，然后在此输入完整路径。
+        </p>
+        <div style="margin-bottom:12px;">
+            <label style="display:block; margin-bottom:6px; font-weight:600;">Vulhub 目录路径:</label>
+            <input id="newVulhubPath" type="text" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; font-family:monospace; font-size:14px;" placeholder="例如: /opt/vulhub 或 /home/user/vulhub" />
+        </div>
+        <div id="pathValidationMsg" style="font-size:12px; margin-bottom:12px; min-height:18px;"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button id="btnCancelPath" class="btn" style="padding:8px 16px;">取消</button>
+            <button id="btnSavePath" class="btn btn-primary" style="padding:8px 16px;">保存</button>
+        </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById('newVulhubPath');
+    const msgEl = document.getElementById('pathValidationMsg');
+
+    // 预填当前路径
+    const currentDisplay = document.getElementById('vulhubPathDisplay');
+    if (currentDisplay && currentDisplay.textContent) {
+        input.value = currentDisplay.textContent;
+    }
+
+    const close = () => {
+        document.body.removeChild(overlay);
+    };
+
+    document.getElementById('btnCancelPath').onclick = close;
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    document.getElementById('btnSavePath').onclick = async () => {
+        const newPath = input.value.trim();
+        if (!newPath) {
+            msgEl.textContent = '请输入路径';
+            msgEl.style.color = '#ef4444';
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/vulhub-path', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: newPath})
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                const display = document.getElementById('vulhubPathDisplay');
+                if (display) {
+                    display.textContent = data.path;
+                    display.title = data.path;
+                }
+                showNotification('Vulhub 路径已更新，正在重新扫描...', 'success');
+                close();
+                await forceRescan();
+            } else {
+                msgEl.textContent = data.error || '保存失败';
+                msgEl.style.color = '#ef4444';
+            }
+        } catch (e) {
+            msgEl.textContent = '请求失败: ' + e.message;
+            msgEl.style.color = '#ef4444';
+        }
+    };
+
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('btnSavePath').click();
+        }
+    });
+
+    setTimeout(() => input.focus(), 100);
 }

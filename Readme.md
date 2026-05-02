@@ -1,424 +1,402 @@
-# MyVulHub - 漏洞环境管理系统
+# MyVulHub — 漏洞环境管理系统
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](VERSION)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](PLATFORM)
+基于 Flask 的 Web 界面漏洞环境管理平台，提供 Docker 化漏洞环境的一键部署、状态监控和镜像管理。
 
-## 项目概述
+## 项目结构
 
-MyVulHub 是一款基于 Web 界面的漏洞环境管理系统，专为渗透测试和安全研究设计。该系统提供了一站式的漏洞环境部署、管理和监控解决方案。
+```
+myVulhub/
+├── run.py                       # 应用入口
+├── app/
+│   ├── __init__.py              # Flask 工厂函数 create_app()
+│   ├── config.py                # 集中配置（路径、TTL、日志等）
+│   ├── routes/
+│   │   ├── __init__.py          # Blueprint 注册
+│   │   ├── main.py              # 页面路由 GET /
+│   │   └── api.py               # 全部 API 路由（/api/*）
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── scanner.py           # 环境扫描（并行线程池）
+│   │   ├── docker.py            # Docker 操作（VulhubOperations 类）
+│   │   └── git.py               # Git 同步操作（GitOperations 类）
+│   └── utils/
+│       ├── __init__.py
+│       ├── helpers.py           # 通用工具函数 + 错误装饰器
+│       ├── cache.py             # 缓存管理（EnvCache + 持久化）
+│       └── compose.py           # docker-compose.yml 解析
+├── templates/
+│   └── index.html               # 前端页面
+├── static/
+│   ├── style.css
+│   └── script.js
+├── deploy.sh                    # 一键部署脚本
+├── uninstall.sh                 # 卸载脚本
+└── requirements.txt
+```
 
-## 核心特性
+**架构分层：**
 
-### 功能模块
-- **环境扫描**：自动扫描 Vulhub 目录中的漏洞环境
-- **启停控制**：一键启动/停止漏洞环境
-- **状态监控**：实时监控容器运行状态
-- **镜像管理**：自动检测缺失镜像并提供拉取选项
-- **文档集成**：内置环境说明文档和漏洞利用脚本
-- **搜索过滤**：支持按分类、CVE、状态等条件过滤
-- **分页展示**：支持大量环境的分页浏览
-- **Git 同步**：支持从远程仓库同步 Vulhub 环境
-
-### 技术架构
-- **前端框架**：原生 JavaScript + HTML/CSS
-- **后端框架**：Flask 2.x
-- **容器技术**：Docker & Docker Compose
-- **数据格式**：JSON API 接口
-- **协议支持**：HTTP
+| 层 | 目录 | 职责 |
+|----|------|------|
+| 路由层 | `app/routes/` | HTTP 请求处理，参数提取，响应格式化 |
+| 服务层 | `app/services/` | 核心业务逻辑（扫描、Docker操作、Git同步） |
+| 工具层 | `app/utils/` | 可复用的纯函数（缓存、compose解析、装饰器） |
+| 配置层 | `app/config.py` | 集中管理所有常量和日志配置 |
 
 ## 系统要求
 
-### 最低配置
-- **CPU**：双核 2.0 GHz 或更高
-- **内存**：4 GB RAM（推荐 8 GB）
-- **存储**：20 GB 可用空间
-- **操作系统**：Ubuntu 18.04+/CentOS 7+/Debian 10+/macOS 10.14+/Windows 10 WSL2
+| 组件 | 最低版本 |
+|------|----------|
+| Python | 3.7+ |
+| Docker | 20.10+ |
+| Docker Compose | 2.0+ |
+| Git | 2.0+（可选） |
 
-### 软件依赖
-- **Python**：3.7 或更高版本
-- **Docker**：20.10 或更高版本
-- **Docker Compose**：2.0 或更高版本
-- **Git**：2.0 或更高版本（可选，用于 Git 同步功能）
+推荐：Ubuntu 20.04+ / Debian 10+，8GB+ RAM，SSD 存储。
 
-### 推荐环境
-- **Ubuntu Server 20.04 LTS** 或 **CentOS Stream 8**
-- **8 GB RAM** 或更高
-- **SSD 存储**
-- **千兆网络连接**
+## 快速开始
 
-## 安装部署
+### 开发环境
 
-### 快速部署
 ```bash
 # 1. 克隆项目
 git clone https://github.com/your-org/myvulhub.git
 cd myvulhub
 
-# 2. 授权脚本执行权限
-chmod +x deploy.sh uninstall.sh
+# 2. 克隆 vulhub 仓库到任意目录
+git clone https://github.com/vulhub/vulhub.git /path/to/vulhub
 
-# 3. 执行部署（需要 root/sudo 权限）
-sudo ./deploy.sh
+# 3. 安装依赖
+pip install -r requirements.txt
+
+# 4. 启动（三种方式配置 vulhub 路径）
+# 方式 A: 环境变量
+export VULHUB_PATH="/path/to/vulhub"
+python run.py
+
+# 方式 B: Web UI 配置（启动后在工具栏更改）
+python run.py
+
+# 方式 C: 持久化配置文件（自动创建于 ~/.vulhub_manager_app_config.json）
+# 访问 http://localhost:5000
 ```
 
-### 自定义部署
-```bash
-# 设置自定义环境变量
-export VULHUB_PATH="/opt/vulhub"
-export MYVULHUB_PORT=5000
+### 生产部署
 
-# 执行部署
+```bash
+# 先克隆 vulhub 仓库
+git clone https://github.com/vulhub/vulhub.git /opt/vulhub
+
+# 一键部署（默认路径 /opt/vulhub）
 sudo ./deploy.sh
+
+# 或指定自定义路径
+VULHUB_PATH=/custom/path/to/vulhub sudo ./deploy.sh
 ```
 
-### 手动部署
+部署脚本会自动创建 systemd 服务，启动命令：
 ```bash
-# 1. 创建系统目录
-sudo mkdir -p /opt/myVulhub
-sudo mkdir -p /var/log/myVulhub
-sudo mkdir -p /opt/vulhub
-
-# 2. 配置系统用户（推荐使用专用用户）
-sudo useradd -r -s /bin/false myvulhub
-
-# 3. 复制应用程序
-sudo cp -r . /opt/myVulhub/
-sudo chown -R myvulhub:myvulhub /opt/myVulhub
-
-# 4. 创建 Python 虚拟环境
-cd /opt/myVulhub
-sudo -u myvulhub python3 -m venv venv
-sudo -u myvulhub /opt/myVulhub/venv/bin/pip install -r requirements.txt
-
-# 5. 配置 systemd 服务
-sudo tee /etc/systemd/system/myVulhub.service > /dev/null <<EOF
-[Unit]
-Description=MyVulHub Vulnerability Environment Management System
-Documentation=https://github.com/your-org/myvulhub
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-User=myvulhub
-Group=myvulhub
-WorkingDirectory=/opt/myVulhub
-Environment="PATH=/opt/myVulhub/venv/bin"
-Environment="VULHUB_PATH=/opt/vulhub"
-Environment="FLASK_ENV=production"
-ExecStart=/opt/myVulhub/venv/bin/python app.py
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=90
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=myvulhub
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 6. 启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable myVulhub
 sudo systemctl start myVulhub
+sudo systemctl status myVulhub
+sudo journalctl -u myVulhub -f
 ```
 
-## 系统配置
+## API 接口文档
+
+所有接口返回统一格式：
+
+```json
+{
+  "success": true,
+  "message": "",
+  "timestamp": 1714636800000,
+  "data": null
+}
+```
+
+### 环境管理
+
+#### `GET /api/scan`
+扫描所有漏洞环境。默认使用缓存，`?cache=false` 强制重新扫描。
+
+```bash
+curl http://localhost:5000/api/scan
+curl http://localhost:5000/api/scan?cache=false
+```
+
+**响应 data 字段**（数组，每个元素）：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| name | string | 环境标识（如 `nexus/CVE-2020-10199`） |
+| category | string | 分类名称 |
+| cve | string | CVE 编号 |
+| status | string | `unknown` / `running` / `stopped` |
+| ports | object | 服务端口映射 `{"service": "port"}` |
+| services | array | 服务名称列表 |
+| has_exploit | bool | 是否包含漏洞利用脚本 |
+| has_images | bool | 是否包含截图 |
+| has_readme | bool | 是否包含 README |
+| has_readme_zh | bool | 是否包含中文 README |
+| has_docker_images | bool | 所需 Docker 镜像是否存在 |
+
+#### `GET /api/stats`
+获取统计摘要。
+
+```bash
+curl http://localhost:5000/api/stats
+```
+
+返回：`total`（环境总数）、`running`（运行中）、`with_exploit`（含利用脚本）、`with_images`（已有镜像）、`categories`（分类分布）。
+
+#### `GET /api/env/<path:name>`
+获取指定环境的详情（compose 内容、截图、利用脚本列表）。
+
+```bash
+curl http://localhost:5000/api/env/nexus/CVE-2020-10199
+```
+
+#### `GET /api/readme/<path:name>`
+获取环境的 README 文档（转 HTML，优先中文版）。
+
+```bash
+curl http://localhost:5000/api/readme/nexus/CVE-2020-10199
+```
+
+#### `GET /api/exploit/<path:name>`
+获取漏洞利用脚本内容。
+
+```bash
+curl http://localhost:5000/api/exploit/nexus/CVE-2020-10199
+```
+
+返回 exploit 文件列表，每个包含 `filename`、`content`、`usage` 等字段。
+
+### 容器操作
+
+#### `POST /api/start`
+启动环境。
+
+```bash
+curl -X POST http://localhost:5000/api/start \
+  -H "Content-Type: application/json" \
+  -d '{"name": "nexus/CVE-2020-10199", "use_proxy": false}'
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| name | string | 环境标识（必填） |
+| use_proxy | bool | 是否通过 proxychains4 代理拉取镜像 |
+
+#### `POST /api/stop`
+停止环境。
+
+```bash
+curl -X POST http://localhost:5000/api/stop \
+  -H "Content-Type: application/json" \
+  -d '{"name": "nexus/CVE-2020-10199"}'
+```
+
+#### `GET /api/check-images`
+检查环境所需的 Docker 镜像是否缺失。
+
+```bash
+curl "http://localhost:5000/api/check-images?name=nexus/CVE-2020-10199"
+```
+
+返回 `missing` 数组列出缺失的镜像名称。
+
+#### `GET /api/pull-stream` (SSE)
+通过 Server-Sent Events 流式拉取镜像。
+
+```bash
+curl -N "http://localhost:5000/api/pull-stream?name=nexus/CVE-2020-10199&proxy=false"
+```
+
+事件类型：`event: log`（拉取日志行）、`event: done`（完成）。
+
+#### `GET /api/wait-ready`
+轮询等待服务就绪（HTTP 200 响应）。
+
+```bash
+curl "http://localhost:5000/api/wait-ready?name=nexus/CVE-2020-10199&timeout=30"
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| name | string | — | 环境标识 |
+| timeout | int | 20 | 最大等待秒数 |
+
+返回 `ready: true/false` 及 `port`。
+
+#### `POST /api/remove-images`
+删除环境相关的 Docker 镜像。
+
+```bash
+curl -X POST http://localhost:5000/api/remove-images \
+  -H "Content-Type: application/json" \
+  -d '{"name": "nexus/CVE-2020-10199"}'
+```
+
+返回 `removed`、`failed`、`total` 统计。
+
+### 系统管理
+
+#### `GET|POST /api/vulhub-path`
+获取或设置 vulhub 仓库路径。设置后自动清除缓存。
+
+```bash
+# 获取当前路径
+curl http://localhost:5000/api/vulhub-path
+
+# 设置新路径
+curl -X POST http://localhost:5000/api/vulhub-path \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/opt/vulhub"}'
+```
+
+路径优先级：Web UI 设置 > 环境变量 `VULHUB_PATH` > 默认 `../vulhub`。
+
+#### `GET|POST /api/git-config`
+获取或保存 Git 远程仓库配置。
+
+```bash
+# 获取
+curl http://localhost:5000/api/git-config
+
+# 保存
+curl -X POST http://localhost:5000/api/git-config \
+  -H "Content-Type: application/json" \
+  -d '{"remote_url": "https://github.com/vulhub/vulhub.git", "use_proxy": false}'
+```
+
+#### `POST /api/git-sync`
+同步 Vulhub 仓库。
+
+```bash
+curl -X POST http://localhost:5000/api/git-sync \
+  -H "Content-Type: application/json" \
+  -d '{"method": "https", "remote_url": "https://github.com/vulhub/vulhub.git"}'
+```
+
+method 支持：`https`、`ssh`、`https_proxy`（proxychains4）、`gh`（GitHub CLI）。
+
+#### `GET /api/running`
+获取当前运行中的 Docker 容器列表（基于 `docker ps`）。
+
+```bash
+curl http://localhost:5000/api/running
+```
+
+#### `POST /api/refresh-cache`
+强制清除缓存并重新扫描。
+
+```bash
+curl -X POST http://localhost:5000/api/refresh-cache
+```
+
+## 开发指南
+
+### 架构设计
+
+应用使用 Flask 的 **应用工厂模式**（`create_app()`）和 **Blueprint** 进行路由组织。核心原则：
+
+- **路由层不写业务逻辑**：路由函数只做参数提取 → 调服务 → 格式化返回
+- **服务之间通过构造函数注入依赖**：如 `VulhubOperations.__init__()` 中创建 `GitOperations` 实例
+- **服务通过 `current_app.config` 暴露给路由**：避免循环导入
+
+### 启动流程
+
+```
+run.py
+  └── create_app()                    # app/__init__.py
+        ├── EnvCache()                # 初始化缓存
+        ├── load_persistent_cache()   # 尝试加载磁盘缓存
+        ├── VulhubOperations()        # 初始化 Docker 服务（含 GitOperations）
+        └── register_blueprint()      # 注册 main_bp + api_bp
+```
+
+### 添加新 API 端点
+
+1. 如需新业务逻辑，在 `app/services/` 添加方法
+2. 在 `app/routes/api.py` 添加路由函数
+3. 通过 `current_app.config['OPS']` 获取服务实例
+
+示例：
+
+```python
+# app/routes/api.py
+@api_bp.route('/my-endpoint')
+def my_endpoint():
+    ops = current_app.config['OPS']
+    result = ops.some_method()
+    return jsonify({"success": True, "data": result})
+```
+
+### 添加新服务
+
+1. 在 `app/services/` 创建新模块
+2. 在 `app/__init__.py` 的 `create_app()` 中初始化
+3. 通过 `app.config['KEY']` 注入
+
+### 配置管理
+
+所有常量集中在 `app/config.py`。动态配置通过以下机制：
+
+- **Vulhub 路径**：通过 `get_vulhub_path()` / `set_vulhub_path()` 管理，持久化到 `~/.vulhub_manager_app_config.json`
+- **Git 配置**：通过 `/api/git-config` 端点管理，持久化到 `~/.vulhub_manager_git_config.json`
+- **环境扫描缓存**：自动持久化到 `~/.vulhub_manager_cache.json`
+
+### 缓存机制
+
+- **内存缓存** (`EnvCache` 类)：会话级，重启丢失
+- **持久化缓存** (`~/.vulhub_manager_cache.json`)：24 小时过期，通过目录哈希检测变化自动失效
+- **路径变更检测**：当 vulhub 路径变更、目录结构变化或缓存过期时自动重新扫描
+- 强制刷新：`POST /api/refresh-cache` 或通过 Web UI 更改 vulhub 路径
+
+### 模块依赖关系
+
+```
+routes (api.py, main.py)
+  ├── services (scanner.py, docker.py, git.py)
+  │     └── utils (compose.py, helpers.py)
+  └── utils (cache.py, helpers.py)
+        └── config.py
+```
+
+`services` 和 `routes` 之间不互相导入 —— 路由通过 `current_app.config` 获取服务实例。
+
+## 配置参考
 
 ### 环境变量
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `VULHUB_PATH` | `/opt/vulhub` | Vulhub 漏洞环境根目录 |
-| `MYVULHUB_PORT` | `5000` | Web 服务端口 |
-| `FLASK_ENV` | `production` | Flask 运行环境 |
-| `PYTHONPATH` | `/opt/myVulhub` | Python 模块搜索路径 |
 
-### 服务管理
-```bash
-# 启动服务
-sudo systemctl start myVulhub
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `VULHUB_PATH` | `../vulhub` | Vulhub 根目录（可被 Web UI 设置覆盖） |
+| `FLASK_ENV` | `production` | Flask 运行模式 |
 
-# 停止服务
-sudo systemctl stop myVulhub
+### 持久化配置文件
 
-# 重启服务
-sudo systemctl restart myVulhub
+| 文件 | 说明 |
+|------|------|
+| `~/.vulhub_manager_app_config.json` | 应用配置（vulhub 路径） |
+| `~/.vulhub_manager_cache.json` | 环境扫描缓存（24h TTL） |
+| `~/.vulhub_manager_git_config.json` | Git 远程仓库配置 |
 
-# 查看服务状态
-sudo systemctl status myVulhub
+## 安全建议
 
-# 启用开机自启
-sudo systemctl enable myVulhub
+- 仅在内网或 VPN 环境下暴露 Web 端口
+- 启动环境时注意端口冲突，端口冲突会返回 `port_conflict: true`
+- 路径遍历保护：所有环境名经过 `_env_dir()` / `get_env_dir_by_name()` 的越权检查
+- 生产环境建议配置反向代理（nginx）+ HTTPS
 
-# 禁用开机自启
-sudo systemctl disable myVulhub
-
-# 查看实时日志
-sudo journalctl -u myVulhub -f
-
-# 查看历史日志（最近100条）
-sudo journalctl -u myVulhub -n 100
-```
-
-### 配置文件
-- **服务配置**：`/etc/systemd/system/myVulhub.service`
-- **应用日志**：`/var/log/myVulhub/app.log`
-- **错误日志**：`/var/log/myVulhub/error.log`
-- **缓存文件**：`~/.myVulhub_cache.json`
-
-## 使用指南
-
-### Web 界面访问
-1. 打开浏览器，访问 `http://<server-ip>:5000`
-2. 系统将显示可用的漏洞环境列表
-3. 选择目标环境进行部署和管理
-
-### 主要功能
-- **环境浏览**：查看所有可用的漏洞环境
-- **快速部署**：一键启动指定的漏洞环境
-- **状态监控**：实时查看容器运行状态
-- **文档查看**：内置环境使用说明和 README
-- **漏洞利用脚本**：查看和使用漏洞利用脚本
-- **镜像管理**：自动检测缺失镜像并提供拉取选项
-- **搜索过滤**：按分类、CVE、状态等条件过滤
-- **分页浏览**：支持大量环境的分页浏览
-- **Git 同步**：从远程仓库同步最新的漏洞环境
-
-### 操作流程
-1. **环境扫描**：系统自动扫描 Vulhub 目录中的环境
-2. **环境启动**：
-   - 点击 "启动" 按钮
-   - 系统检测缺失镜像
-   - 选择是否使用代理拉取镜像
-   - 自动启动容器
-3. **环境停止**：点击 "停止" 按钮停止容器
-4. **查看详情**：点击 "详情" 查看环境文档和配置
-5. **漏洞利用**：点击 "漏洞利用脚本" 查看利用脚本
-
-### API 接口
-系统提供 RESTful API 接口用于程序化管理：
+## 卸载
 
 ```bash
-# 获取环境列表（使用缓存）
-curl -X GET http://localhost:5000/api/scan?cache=true
-
-# 获取环境列表（强制刷新）
-curl -X GET http://localhost:5000/api/scan?cache=false
-
-# 启动环境
-curl -X POST http://localhost:5000/api/start -H "Content-Type: application/json" -d '{"name":"apache/CVE-2021-41773"}'
-
-# 停止环境
-curl -X POST http://localhost:5000/api/stop -H "Content-Type: application/json" -d '{"name":"apache/CVE-2021-41773"}'
-
-# 获取环境详情
-curl -X GET http://localhost:5000/api/env/apache/CVE-2021-41773
-
-# 获取环境说明文档
-curl -X GET http://localhost:5000/api/readme/apache/CVE-2021-41773
-
-# 获取漏洞利用脚本
-curl -X GET http://localhost:5000/api/exploit/apache/CVE-2021-41773
-
-# 检查缺失镜像
-curl -X GET http://localhost:5000/api/check-images?name=apache/CVE-2021-41773
-
-# 删除环境镜像
-curl -X POST http://localhost:5000/api/remove-images -H "Content-Type: application/json" -d '{"name":"apache/CVE-2021-41773"}'
-
-# 获取统计信息
-curl -X GET http://localhost:5000/api/stats
-
-# 刷新缓存
-curl -X POST http://localhost:5000/api/refresh-cache
-
-# 检查服务就绪状态
-curl -X GET http://localhost:5000/api/wait-ready?name=apache/CVE-2021-41773&timeout=20
-
-# 获取 Git 配置
-curl -X GET http://localhost:5000/api/git-config
-
-# 同步 Git 仓库
-curl -X POST http://localhost:5000/api/git-sync -H "Content-Type: application/json" -d '{"method":"https","remote_url":"https://github.com/vulhub/vulhub.git"}'
-```
-
-## 安全配置
-
-### 访问控制
-- **网络隔离**：建议在内网环境中部署
-- **防火墙配置**：限制外部访问权限
-- **身份认证**：生产环境建议配置认证机制
-
-### 防火墙规则
-```bash
-# Ubuntu/Debian (ufw)
-sudo ufw allow from 192.168.0.0/16 to any port 5000
-
-# CentOS/RHEL (firewalld)
-sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.0.0/16" port protocol="tcp" port="5000" accept'
-sudo firewall-cmd --reload
-```
-
-### 安全最佳实践
-1. **定期更新**：保持系统和组件最新
-2. **访问限制**：严格控制访问权限
-3. **日志监控**：持续监控安全事件
-4. **备份策略**：定期备份重要配置
-5. **隔离环境**：在独立的测试环境中使用
-
-## 运维管理
-
-### 性能监控
-- **CPU 使用率**：监控容器 CPU 消耗
-- **内存使用**：跟踪内存分配情况
-- **磁盘 I/O**：监测磁盘读写性能
-- **网络流量**：分析网络带宽使用
-
-### 日志管理
-```bash
-# 查看应用日志
-sudo tail -f /var/log/myVulhub/app.log
-
-# 查看错误日志
-sudo tail -f /var/log/myVulhub/error.log
-
-# 日志轮转配置
-sudo tee /etc/logrotate.d/myvulhub > /dev/null <<EOF
-/var/log/myVulhub/*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-```
-
-### 缓存管理
-系统使用两层缓存机制：
-- **内存缓存**：临时缓存扫描结果
-- **持久化缓存**：保存在 `~/.myVulhub_cache.json` 文件中，24小时过期
-
-### 备份恢复
-```bash
-# 备份配置文件
-sudo tar -czf myvulhub-backup-$(date +%Y%m%d).tar.gz \
-  /etc/systemd/system/myVulhub.service \
-  /opt/myVulhub/config/
-
-# 恢复配置文件
-sudo tar -xzf myvulhub-backup-YYYYMMDD.tar.gz -C /
-```
-
-## 故障排除
-
-### 常见问题
-
-#### 服务无法启动
-```bash
-# 检查服务状态
-sudo systemctl status myVulhub
-
-# 查看详细日志
-sudo journalctl -u myVulhub --no-pager
-
-# 检查端口占用
-sudo netstat -tlnp | grep :5000
-
-# 检查依赖服务
-sudo systemctl status docker
-```
-
-#### Docker 相关错误
-```bash
-# 检查 Docker 服务
-sudo systemctl status docker
-
-# 检查 Docker 权限
-sudo usermod -aG docker $USER
-
-# 重启 Docker 服务
-sudo systemctl restart docker
-```
-
-#### 网络连接问题
-```bash
-# 检查防火墙设置
-sudo ufw status
-sudo firewall-cmd --list-all
-
-# 检查网络接口
-ip addr show
-
-# 测试本地连接
-curl -I http://localhost:5000
-```
-
-#### 端口冲突
-当启动环境时遇到端口冲突：
-- 查看占用容器：`docker ps` 
-- 停止冲突容器：`docker stop <container-id>`
-- 或修改环境的 `docker-compose.yml` 文件使用其他端口
-
-### 调试模式
-```bash
-# 以调试模式启动
-sudo -u myvulhub /opt/myVulhub/venv/bin/python app.py --debug
-
-# 查看系统资源使用
-sudo htop
-sudo docker stats
-```
-
-## 卸载清理
-
-### 自动卸载
-```bash
-# 执行卸载脚本
 sudo ./uninstall.sh
 ```
 
-### 手动卸载
-```bash
-# 1. 停止并禁用服务
-sudo systemctl stop myVulhub
-sudo systemctl disable myVulhub
+卸载脚本会清理：systemd 服务、应用目录、日志目录、所有用户缓存及配置文件。
 
-# 2. 删除服务配置
-sudo rm -f /etc/systemd/system/myVulhub.service
-sudo systemctl daemon-reload
-sudo systemctl reset-failed
+## 许可证
 
-# 3. 删除应用目录
-sudo rm -rf /opt/myVulhub
-sudo rm -rf /var/log/myVulhub
-
-# 4. 清理残留文件
-sudo find / -name "*.myVulhub*" -type f 2>/dev/null | xargs sudo rm -f
-```
-
-
-## 开发环境搭建
-```bash
-# 1. 克隆代码
-git clone https://github.com/your-org/myvulhub.git
-cd myvulhub
-
-# 2. 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
-
-# 3. 安装开发依赖
-pip install -r requirements.txt
-
-# 4. 设置环境变量
-export VULHUB_PATH="/path/to/vulhub"
-
-# 5. 启动开发服务器
-python app.py
-```
+MIT License

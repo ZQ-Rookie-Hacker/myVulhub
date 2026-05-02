@@ -92,32 +92,43 @@ fi
 
 log "删除用户缓存文件..."
 # 删除root用户缓存
-if [ -f "/root/.myVulhub_cache.json" ]; then
-    rm -f "/root/.myVulhub_cache.json" || log "无法删除root用户缓存"
+if [ -f "/root/.vulhub_manager_cache.json" ]; then
+    rm -f "/root/.vulhub_manager_cache.json" || log "无法删除root用户缓存"
+fi
+if [ -f "/root/.vulhub_manager_git_config.json" ]; then
+    rm -f "/root/.vulhub_manager_git_config.json" || log "无法删除root用户git配置"
+fi
+if [ -f "/root/.vulhub_manager_app_config.json" ]; then
+    rm -f "/root/.vulhub_manager_app_config.json" || log "无法删除root用户应用配置"
 fi
 
 # 删除其他用户缓存
 for user_home in /home/*; do
-    if [ -f "$user_home/.myVulhub_cache.json" ]; then
-        rm -f "$user_home/.myVulhub_cache.json" || log "无法删除$user_home用户缓存"
+    if [ -f "$user_home/.vulhub_manager_cache.json" ]; then
+        rm -f "$user_home/.vulhub_manager_cache.json" || log "无法删除$user_home用户缓存"
+    fi
+    if [ -f "$user_home/.vulhub_manager_git_config.json" ]; then
+        rm -f "$user_home/.vulhub_manager_git_config.json" || log "无法删除$user_home用户git配置"
+    fi
+    if [ -f "$user_home/.vulhub_manager_app_config.json" ]; then
+        rm -f "$user_home/.vulhub_manager_app_config.json" || log "无法删除$user_home用户应用配置"
     fi
 done
-
 # 删除临时备份文件
 log "清理临时备份文件..."
-rm -f /tmp/myvulhub_backup_* 2>/dev/null || true
+rm -rf /tmp/myVulhub_backup_* /tmp/myvulhub_backup_* 2>/dev/null || true
 
 log "清理可能的残留进程..."
 # 优雅地终止相关进程
 pkill -f "myVulhub" 2>/dev/null || true
-pkill -f "app.py" 2>/dev/null || true
+pkill -f "run.py" 2>/dev/null || true
 
 # 等待进程结束
 sleep 2
 
 # 强制终止（如果必要）
 pkill -9 -f "myVulhub" 2>/dev/null || true
-pkill -9 -f "app.py" 2>/dev/null || true
+pkill -9 -f "run.py" 2>/dev/null || true
 
 log "验证卸载结果..."
 # 检查是否还有残留文件
