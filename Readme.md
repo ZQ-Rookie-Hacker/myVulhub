@@ -11,7 +11,6 @@ myVulhub/
 │   ├── __init__.py              # Flask 工厂函数 create_app()
 │   ├── config.py                # 集中配置（路径、TTL、日志等）
 │   ├── routes/
-│   │   ├── __init__.py          # Blueprint 注册
 │   │   ├── main.py              # 页面路由 GET /
 │   │   └── api.py               # 全部 API 路由（/api/*）
 │   ├── services/
@@ -49,8 +48,9 @@ myVulhub/
 |------|----------|
 | Python | 3.7+ |
 | Docker | 20.10+ |
-| Docker Compose | 2.0+ |
-| Git | 2.0+（可选） |
+| Docker Compose | 1.x / 2.x（自动检测） |
+| Git | 2.0+（可选，用于仓库同步） |
+| proxychains4 | 可选（用于代理拉取镜像 / Git 同步） |
 
 推荐：Ubuntu 20.04+ / Debian 10+，8GB+ RAM，SSD 存储。
 
@@ -103,16 +103,7 @@ sudo journalctl -u myVulhub -f
 
 ## API 接口文档
 
-所有接口返回统一格式：
-
-```json
-{
-  "success": true,
-  "message": "",
-  "timestamp": 1714636800000,
-  "data": null
-}
-```
+> 接口返回格式因端点而异，部分返回 `{"success": true, ...}` 结构，部分直接返回数据。具体见各端点说明。
 
 ### 环境管理
 
@@ -124,7 +115,7 @@ curl http://localhost:5000/api/scan
 curl http://localhost:5000/api/scan?cache=false
 ```
 
-**响应 data 字段**（数组，每个元素）：
+**响应**（直接返回环境数组，每个元素）：
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | name | string | 环境标识（如 `nexus/CVE-2020-10199`） |
@@ -212,7 +203,7 @@ curl "http://localhost:5000/api/check-images?name=nexus/CVE-2020-10199"
 curl -N "http://localhost:5000/api/pull-stream?name=nexus/CVE-2020-10199&proxy=false"
 ```
 
-事件类型：`event: log`（拉取日志行）、`event: done`（完成）。
+事件类型：`event: log`（拉取日志行）、`event: done`（`data: ok` 成功 / `data: error` 失败）。
 
 #### `GET /api/wait-ready`
 轮询等待服务就绪（HTTP 200 响应）。
@@ -242,7 +233,9 @@ curl -X POST http://localhost:5000/api/remove-images \
 ### 系统管理
 
 #### `GET|POST /api/vulhub-path`
-获取或设置 vulhub 仓库路径。设置后自动清除缓存。
+获取或设置 vulhub 仓库路径。设置后自动清除缓存并重新扫描。
+
+GET 返回 `path`、`exists` 字段，POST 返回 `path`、`message`。
 
 ```bash
 # 获取当前路径
@@ -266,11 +259,11 @@ curl http://localhost:5000/api/git-config
 # 保存
 curl -X POST http://localhost:5000/api/git-config \
   -H "Content-Type: application/json" \
-  -d '{"remote_url": "https://github.com/vulhub/vulhub.git", "use_proxy": false}'
+  -d '{"remote_url": "https://github.com/vulhub/vulhub.git", "use_proxy": false, "protocol": "https"}'
 ```
 
 #### `POST /api/git-sync`
-同步 Vulhub 仓库。
+同步 Vulhub 仓库。自动处理空仓库初始化、dubious ownership 异常等边界情况。
 
 ```bash
 curl -X POST http://localhost:5000/api/git-sync \
@@ -287,12 +280,16 @@ method 支持：`https`、`ssh`、`https_proxy`（proxychains4）、`gh`（GitHu
 curl http://localhost:5000/api/running
 ```
 
+返回 `{"success": true, "containers": [...]}`，每个容器包含 `id`、`name`、`image`、`status`、`ports`。
+
 #### `POST /api/refresh-cache`
 强制清除缓存并重新扫描。
 
 ```bash
 curl -X POST http://localhost:5000/api/refresh-cache
 ```
+
+返回 `{"success": true, "count": N}`。
 
 ## 开发指南
 
@@ -387,6 +384,7 @@ routes (api.py, main.py)
 - 仅在内网或 VPN 环境下暴露 Web 端口
 - 启动环境时注意端口冲突，端口冲突会返回 `port_conflict: true`
 - 路径遍历保护：所有环境名经过 `_env_dir()` / `get_env_dir_by_name()` 的越权检查
+- XSS 防护：前端通过 `escapeHtml()` 对文件系统来源字符串进行转义
 - 生产环境建议配置反向代理（nginx）+ HTTPS
 
 ## 卸载
@@ -395,7 +393,7 @@ routes (api.py, main.py)
 sudo ./uninstall.sh
 ```
 
-卸载脚本会清理：systemd 服务、应用目录、日志目录、所有用户缓存及配置文件。
+卸载脚本会清理：systemd 服务、应用目录、日志目录、Docker Compose 项目（停止容器并删除相关镜像）、所有用户缓存及配置文件、临时备份文件。
 
 ## 许可证
 
