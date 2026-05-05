@@ -50,34 +50,48 @@ def parse_services_ports(compose_path: Path) -> Tuple[List[str], Dict[str, str]]
     return services, ports_map
 
 
-def check_docker_images_exist(compose_path: Path, fast_mode: bool = True) -> bool:
+def check_docker_images_exist(compose_path: Path, fast_mode: bool = True, local_images: set = None) -> bool:
     """检查 docker-compose.yml 中定义的映像是否已存在本地"""
     if fast_mode:
         return False
-    else:
-        images_to_check = _parse_image_names(compose_path)
-        if not images_to_check:
-            return False
+    images_to_check = _parse_image_names(compose_path)
+    if not images_to_check:
+        return False
 
-        try:
-            result = subprocess.run(
-                ['docker', 'images', '--format', '{{.Repository}}:{{.Tag}}'],
-                capture_output=True,
-                timeout=2,
-                text=True
-            )
-            if result.returncode == 0:
-                local_images = set(result.stdout.strip().split('\n'))
-                for image in images_to_check:
-                    if image not in local_images:
-                        logger.debug(f"镜像不存在: {image}")
-                        return False
-                return True
-            else:
-                return _check_images_one_by_one(images_to_check)
-        except Exception as e:
-            logger.warning(f"使用docker images命令检查失败，回退到逐个检查: {e}")
+    if local_images is not None:
+        return all(img in local_images for img in images_to_check)
+
+    try:
+        result = subprocess.run(
+            ['docker', 'images', '--format', '{{.Repository}}:{{.Tag}}'],
+            capture_output=True,
+            timeout=5,
+            text=True
+        )
+        if result.returncode == 0:
+            local = set(result.stdout.strip().split('\n'))
+            return all(img in local for img in images_to_check)
+        else:
             return _check_images_one_by_one(images_to_check)
+    except Exception as e:
+        logger.warning(f"使用docker images命令检查失败，回退到逐个检查: {e}")
+        return _check_images_one_by_one(images_to_check)
+
+
+def get_local_images() -> set:
+    """获取本地所有 Docker 镜像集合，失败返回空 set"""
+    try:
+        result = subprocess.run(
+            ['docker', 'images', '--format', '{{.Repository}}:{{.Tag}}'],
+            capture_output=True,
+            timeout=5,
+            text=True
+        )
+        if result.returncode == 0:
+            return set(result.stdout.strip().split('\n'))
+    except Exception:
+        pass
+    return set()
 
 
 def _parse_image_names(compose_path: Path) -> List[str]:

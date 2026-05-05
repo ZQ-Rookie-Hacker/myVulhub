@@ -37,23 +37,31 @@ class GitOperations:
             if is_new_repo:
                 return self._init_and_sync(remote_url, use_proxychains)
 
-            sync_result = self._get_sync_summary(use_proxychains)
-            current_branch = self._get_current_branch(use_proxychains)
+            # 空仓库（如 git init 后未 fetch）按新仓库处理
+            if self._get_commit_count(use_proxychains=False) == 0:
+                logger.info("检测到空仓库，按新仓库初始化")
+                return self._init_and_sync(remote_url, use_proxychains)
+
+            # 本地操作：不经过代理
+            sync_result = self._get_sync_summary(use_proxychains=False)
+            current_branch = self._get_current_branch(use_proxychains=False)
             if not current_branch:
                 return False, {"error": "无法获取当前分支"}
 
-            has_changes = self._has_uncommitted_changes(use_proxychains)
+            has_changes = self._has_uncommitted_changes(use_proxychains=False)
             if has_changes:
-                self._stash_changes(use_proxychains)
+                self._stash_changes(use_proxychains=False)
 
+            # 网络操作：经过代理
             pull_ok, pull_output = self._pull_updates(use_proxychains)
 
             if has_changes:
-                self._unstash_changes(use_proxychains)
+                self._unstash_changes(use_proxychains=False)
 
             if pull_ok:
-                changes = self._get_changes_summary(sync_result, use_proxychains)
-                latest_commit = self._get_latest_commit(use_proxychains)
+                # 变更摘要中的本地操作也不经过代理
+                changes = self._get_changes_summary(sync_result, use_proxychains=False)
+                latest_commit = self._get_latest_commit(use_proxychains=False)
                 return True, {
                     "message": "同步成功",
                     "changes": changes,
@@ -67,26 +75,36 @@ class GitOperations:
 
     def _init_and_sync(self, remote_url: str, use_proxychains: bool = False) -> Tuple[bool, Dict[str, Any]]:
         try:
-            ok, out, err = self._run_git(["init"], use_proxychains)
-            if not ok:
-                return False, {"error": f"Git 初始化失败: {err}"}
+            # 本地操作（已初始化则跳过）
+            if not (self.vulhub_path / ".git").exists():
+                ok, out, err = self._run_git(["init"], use_proxychains=False)
+                if not ok:
+                    return False, {"error": f"Git 初始化失败: {err}"}
 
-            ok, out, err = self._run_git(["remote", "add", "origin", remote_url], use_proxychains)
-            if not ok:
-                return False, {"error": f"添加远程仓库失败: {err}"}
+            # 检查远程仓库是否已存在
+            ok, out, _ = self._run_git(["remote", "get-url", "origin"], use_proxychains=False)
+            if ok:
+                # 远程已存在，更新 URL
+                self._run_git(["remote", "set-url", "origin", remote_url], use_proxychains=False)
+            else:
+                ok, out, err = self._run_git(["remote", "add", "origin", remote_url], use_proxychains=False)
+                if not ok:
+                    return False, {"error": f"添加远程仓库失败: {err}"}
 
+            # 网络操作：fetch 需要代理
             ok, out, err = self._run_git(["fetch", "--all"], use_proxychains)
             if not ok:
                 return False, {"error": f"拉取分支失败: {err}"}
 
-            ok, out, err = self._run_git(["checkout", "master"], use_proxychains)
+            # 本地操作
+            ok, out, err = self._run_git(["checkout", "master"], use_proxychains=False)
             if not ok:
-                ok, out, err = self._run_git(["checkout", "main"], use_proxychains)
+                ok, out, err = self._run_git(["checkout", "main"], use_proxychains=False)
                 if not ok:
                     return False, {"error": f"切换分支失败: {err}"}
 
-            commit_count = self._get_commit_count(use_proxychains)
-            env_count = self._get_env_count(use_proxychains)
+            commit_count = self._get_commit_count(use_proxychains=False)
+            env_count = self._get_env_count(use_proxychains=False)
 
             return True, {
                 "message": "初始化并同步成功",

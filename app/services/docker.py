@@ -146,8 +146,10 @@ class VulhubOperations:
         return_code = proc.wait()
         if return_code == 0:
             logger.info(f"镜像拉取成功: {name}")
+            yield f"[EXIT_CODE:0]"
         else:
             logger.warning(f"镜像拉取异常退出: {name}, 退出码: {return_code}")
+            yield f"[EXIT_CODE:{return_code}]"
 
     def remove_images(self, name: str) -> Tuple[bool, Dict[str, Any]]:
         logger.info(f"开始删除环境镜像: {name}")
@@ -157,11 +159,11 @@ class VulhubOperations:
             return False, {"error": f"找不到环境：{name}"}
 
         ok, out, _ = self._run(self._cmd(['config', '--images']), cwd=env_dir)
-        if not ok:
-            logger.error(f"获取镜像列表失败: {name}")
-            return False, {"error": "无法获取镜像列表"}
-
-        images = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        if ok:
+            images = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        else:
+            logger.warning(f"config --images 失败，使用备用方法解析镜像: {name}")
+            images = fallback_parse_images(env_dir)
         logger.debug(f"获取到镜像列表: {name}, 镜像数量: {len(images)}")
 
         if not images:
@@ -207,25 +209,19 @@ class VulhubOperations:
             return True, {"ready": False}
 
         deadline = time.time() + max(1, int(timeout))
-        chosen_port = None
 
         while time.time() < deadline:
             ports = self._pick_host_ports(env_dir)
-            if ports:
-                chosen_port = ports[0]
+            for port in ports:
                 for scheme in ('http', 'https'):
                     try:
-                        req = Request(f"{scheme}://127.0.0.1:{chosen_port}", headers={'User-Agent': 'curl/8'})
+                        req = Request(f"{scheme}://127.0.0.1:{port}", headers={'User-Agent': 'curl/8'})
                         with urlopen(req, timeout=2) as resp:
-                            if 200 <= getattr(resp, 'status', 200) < 400:
-                                return True, {"ready": True, "port": chosen_port}
-                            return True, {"ready": True, "port": chosen_port}
+                            return True, {"ready": True, "port": port}
                     except (URLError, HTTPError, Exception):
-                        pass
+                        continue
             time.sleep(1.0)
 
-        if chosen_port:
-            return True, {"ready": False, "port": chosen_port}
         return True, {"ready": False}
 
     def _detect_compose_cmd(self) -> List[str]:
@@ -287,8 +283,9 @@ class VulhubOperations:
             return False, "", str(e)
 
     def _pick_host_ports(self, env_dir: Path) -> List[int]:
-        ok, out, _ = self._run(self._cmd(['ps', '--format', 'json']), cwd=env_dir)
         ports: List[int] = []
+        # 优先使用 JSON 格式 (docker compose v2)
+        ok, out, _ = self._run(self._cmd(['ps', '--format', 'json']), cwd=env_dir)
         if ok:
             try:
                 lines = [json.loads(x) for x in out.splitlines() if x.strip()]
@@ -297,8 +294,17 @@ class VulhubOperations:
                     for hp in self._parse_ports_string(pstr):
                         if hp not in ports:
                             ports.append(hp)
+                if ports:
+                    return ports
             except Exception:
                 pass
+        # 回退：解析文本输出 (docker compose v1)
+        ok2, out2, _ = self._run(self._cmd(['ps']), cwd=env_dir)
+        if ok2:
+            for line in out2.splitlines():
+                for hp in self._parse_ports_string(line):
+                    if hp not in ports:
+                        ports.append(hp)
         return ports
 
     def _parse_ports_string(self, s: str) -> List[int]:

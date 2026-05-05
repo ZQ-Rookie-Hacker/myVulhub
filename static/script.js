@@ -59,9 +59,9 @@ async function forceRescan() {
         if (!refreshResult.success) {
             throw new Error(refreshResult.error || '重新扫描失败');
         }
-        
-        // 重新加载数据
-        const response = await fetch('/api/scan?cache=false');
+
+        // refresh-cache 已完成扫描并缓存，直接使用缓存
+        const response = await fetch('/api/scan?cache=true');
         allEnvironments = await response.json();
         filteredEnvironments = allEnvironments.slice();
 
@@ -708,19 +708,19 @@ async function showDetail(name) {
         const readme = await readmeResponse.json();
 
         let content = `
-            <h2>${env.name}</h2>
+            <h2>${escapeHtml(env.name)}</h2>
             <div class="env-meta" style="margin: 1rem 0;">
-                <span class="tag">分类: ${env.category}</span>
-                <span class="tag">CVE: ${env.cve}</span>
-                ${env.exploit_files && env.exploit_files.length > 0 ? 
-                    `<span class="tag tag-exploit">漏洞利用脚本: ${env.exploit_files.join(', ')}</span>` : ''}
+                <span class="tag">分类: ${escapeHtml(env.category)}</span>
+                <span class="tag">CVE: ${escapeHtml(env.cve)}</span>
+                ${env.exploit_files && env.exploit_files.length > 0 ?
+                    `<span class="tag tag-exploit">漏洞利用脚本: ${escapeHtml(env.exploit_files.join(', '))}</span>` : ''}
             </div>
         `;
 
         if (env.images && env.images.length > 0) {
             content += '<h3>截图</h3>';
             env.images.forEach(img => {
-                content += `<img src="${img.data}" class="screenshot" alt="${img.name}" loading="lazy">`;
+                content += `<img src="${img.data}" class="screenshot" alt="${escapeHtml(img.name)}" loading="lazy">`;
             });
         }
 
@@ -756,7 +756,7 @@ async function showExploit(name) {
             return;
         }
 
-        let content = `<h2>漏洞利用脚本 - ${name}</h2>
+        let content = `<h2>漏洞利用脚本 - ${escapeHtml(name)}</h2>
         <div style="background:#fef3c7; color:#78350f; padding:12px; border-radius:8px; margin:10px 0;">
             ⚠️ <strong>警告</strong>：仅供学术研究与授权测试使用，使用者需自负法律责任
         </div>`;
@@ -764,11 +764,11 @@ async function showExploit(name) {
         exploits.forEach(exploit => {
             content += `
                 <div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; margin:12px 0;">
-                    <h3 style="margin-top:0;">${exploit.filename}</h3>
+                    <h3 style="margin-top:0;">${escapeHtml(exploit.filename)}</h3>
                     <div style="margin: 8px 0;">
                         <span class="tag">大小: ${exploit.size} 字节</span>
                         <span class="tag">行数: ${exploit.lines}</span>
-                        <span class="tag">路径: ${exploit.path}</span>
+                        <span class="tag">路径: ${escapeHtml(exploit.path)}</span>
                     </div>
                     ${exploit.usage ? `<div style="background:#f3f4f6; padding:8px; border-radius:6px; margin:8px 0;">
                         <strong>使用说明：</strong> ${escapeHtml(exploit.usage)}
@@ -796,8 +796,6 @@ async function showExploit(name) {
 
 // === 其它小工具 ===
 function openEnv(port) {
-    // window.open(`http://localhost:${port}`,function openEnv(port) {
-    // 从当前页面URL获取服务器地址
     const currentHost = window.location.hostname;
     const currentProtocol = window.location.protocol;
     window.open(`${currentProtocol}//${currentHost}:${port}`, '_blank');
@@ -895,10 +893,15 @@ function pullWithProgress(name, useProxy = false) {
     return new Promise((resolve, reject) => {
         const es = new EventSource(`/api/pull-stream?name=${encodeURIComponent(name)}${proxyParam}`);
         es.addEventListener('log', (ev) => appendProgress(ev.data));
-        es.addEventListener('done', () => { 
-            es.close(); 
-            appendProgress('[OK] 镜像下载完成'); 
-            resolve(); 
+        es.addEventListener('done', (ev) => {
+            es.close();
+            if (ev.data === 'error') {
+                appendProgress('[Error] 镜像下载失败，请检查网络或代理配置');
+                reject(new Error('pull 失败'));
+            } else {
+                appendProgress('[OK] 镜像下载完成');
+                resolve();
+            }
         });
         es.onerror = () => { 
             es.close(); 

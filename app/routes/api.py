@@ -64,7 +64,15 @@ def api_scan():
             return jsonify(cached_envs)
 
     logger.info("执行完整扫描...")
-    envs = scan_environments_fs()
+    try:
+        envs = scan_environments_fs()
+    except FileNotFoundError:
+        logger.warning(f"Vulhub路径不存在，返回空列表")
+        return jsonify([])
+    except Exception as e:
+        logger.error(f"扫描失败: {e}")
+        return jsonify({"error": f"扫描失败: {str(e)}"}), 500
+
     out = [normalize_env_output(e) for e in envs]
 
     cache.set(out)
@@ -245,9 +253,20 @@ def api_pull_stream():
     use_proxy = request.args.get('proxy', 'false').lower() == 'true'
 
     def gen():
+        exit_ok = None
         for line in ops.pull_images_stream(name, use_proxy=use_proxy):
-            yield f"event: log\ndata: {line}\n\n"
-        yield "event: done\ndata: ok\n\n"
+            if line.startswith('[EXIT_CODE:0]'):
+                exit_ok = True
+            elif line.startswith('[EXIT_CODE:'):
+                exit_ok = False
+                code = line[11:-1] if line.endswith(']') else line[11:]
+                yield f"event: log\ndata: [Error] 镜像拉取失败，退出码: {code}\n\n"
+            else:
+                yield f"event: log\ndata: {line}\n\n"
+        if exit_ok is True:
+            yield "event: done\ndata: ok\n\n"
+        else:
+            yield "event: done\ndata: error\n\n"
 
     return current_app.response_class(gen(), mimetype='text/event-stream')
 
@@ -279,7 +298,7 @@ def api_running():
             try:
                 obj = json.loads(line)
             except Exception:
-                obj = {}
+                continue
             containers.append({
                 "id": (obj.get("ID") or "")[:12],
                 "name": obj.get("Names") or "",
@@ -378,6 +397,12 @@ def _sync_with_gh_cli(remote_url: str = None):
                 repo_url = remote_url
             else:
                 repo_url = "vulhub/vulhub"
+            # 空目录会导致 clone 失败，先删除
+            if vulhub_path.exists() and not any(vulhub_path.iterdir()):
+                try:
+                    vulhub_path.rmdir()
+                except Exception:
+                    pass
             cmd = ['gh', 'repo', 'clone', repo_url, str(vulhub_path)]
             result = subprocess.run(cmd, capture_output=True, text=True)
         else:

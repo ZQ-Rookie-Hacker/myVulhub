@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 from app.config import get_vulhub_path, logger
 from app.utils.helpers import has_exploit, image_files
-from app.utils.compose import parse_services_ports, check_docker_images_exist
+from app.utils.compose import parse_services_ports, check_docker_images_exist, get_local_images
 
 
 def get_env_dir_by_name(name: str) -> Path:
@@ -28,6 +28,10 @@ def scan_environments_fs(vulhub_path: Path = None) -> List[Dict[str, Any]]:
     total = len(compose_files)
     logger.info(f"找到 {total} 個環境，開始並行掃描...")
 
+    docker_images = get_local_images()
+    if docker_images:
+        logger.info(f"已獲取本地 {len(docker_images)} 個 Docker 鏡像，將用於快速檢查")
+
     max_workers = min(4, max(1, total // 10 + 1))
 
     def process_single_env(compose_path):
@@ -40,16 +44,11 @@ def scan_environments_fs(vulhub_path: Path = None) -> List[Dict[str, Any]]:
 
             services, ports_map = parse_services_ports(compose_path)
 
-            readme_files = [
-                env_dir / 'README.md',
-                env_dir / 'README.zh-cn.md',
-                env_dir / 'README_zh.md'
-            ]
-            has_readme = readme_files[0].exists()
-            has_readme_zh = readme_files[1].exists() or readme_files[2].exists()
+            has_readme = any((env_dir / n).exists() for n in ('README.md', 'README.MD'))
+            has_readme_zh = any((env_dir / n).exists() for n in ('README.zh-cn.md', 'README.zh-CN.md', 'README_zh.md'))
 
             imgs = image_files(env_dir)
-            has_docker_images = check_docker_images_exist(compose_path, fast_mode=False)
+            has_docker_images = check_docker_images_exist(compose_path, fast_mode=False, local_images=docker_images)
 
             return {
                 "name": rel,
