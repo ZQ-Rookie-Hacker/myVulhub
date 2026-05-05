@@ -1349,11 +1349,11 @@ function showChangePathDialog() {
     dialog.innerHTML = `
         <h3 style="margin:0 0 8px 0;">📂 配置 Vulhub 路径</h3>
         <p style="color:#6b7280; font-size:13px; margin:0 0 16px 0;">
-            请先克隆 vulhub 仓库到你想要的目录，然后在此输入完整路径。
+            请先克隆 vulhub 仓库到你想要的目录，然后在此输入路径（支持绝对路径和相对路径，相对路径基于 /opt/myVulhub）。
         </p>
         <div style="margin-bottom:12px;">
             <label style="display:block; margin-bottom:6px; font-weight:600;">Vulhub 目录路径:</label>
-            <input id="newVulhubPath" type="text" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; font-family:monospace; font-size:14px;" placeholder="例如: /opt/vulhub 或 /home/user/vulhub" />
+            <input id="newVulhubPath" type="text" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; font-family:monospace; font-size:14px;" placeholder="例如: /opt/vulhub 或 ../vulhub（相对路径基于 /opt/myVulhub 工作目录）" />
         </div>
         <div id="pathValidationMsg" style="font-size:12px; margin-bottom:12px; min-height:18px;"></div>
         <div style="display:flex; gap:8px; justify-content:flex-end;">

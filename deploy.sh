@@ -160,7 +160,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=$APP_DIR
-Environment="PATH=$VENV_DIR/bin"
+Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="VULHUB_PATH=${VULHUB_PATH:-/opt/vulhub}"
 ExecStart=$VENV_DIR/bin/python run.py
 ExecReload=/bin/kill -HUP \$MAINPID
