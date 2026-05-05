@@ -245,8 +245,8 @@ class VulhubOperations:
         if not name or not isinstance(name, str):
             return None
 
-        clean_name = name.strip().replace('..', '').replace('//', '/')
-        if not clean_name:
+        clean_name = name.strip()
+        if not clean_name or clean_name.startswith('/'):
             return None
 
         try:

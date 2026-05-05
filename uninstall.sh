@@ -119,16 +119,22 @@ log "清理临时备份文件..."
 rm -rf /tmp/myVulhub_backup_* /tmp/myvulhub_backup_* 2>/dev/null || true
 
 log "清理可能的残留进程..."
-# 优雅地终止相关进程
+# 精确匹配：仅终止 /opt/myVulhub 下的 run.py 进程
+pkill -f "/opt/myVulhub.*run.py" 2>/dev/null || true
 pkill -f "myVulhub" 2>/dev/null || true
-pkill -f "run.py" 2>/dev/null || true
 
 # 等待进程结束
-sleep 2
+sleep 3
 
 # 强制终止（如果必要）
+pkill -9 -f "/opt/myVulhub.*run.py" 2>/dev/null || true
 pkill -9 -f "myVulhub" 2>/dev/null || true
-pkill -9 -f "run.py" 2>/dev/null || true
+
+# 检查并清理关联的 Docker 容器（由该应用启动的）
+log "检查残留 Docker 容器..."
+docker ps -q 2>/dev/null | while read -r cid; do
+    docker stop "$cid" 2>/dev/null || true
+done || true
 
 log "验证卸载结果..."
 # 检查是否还有残留文件

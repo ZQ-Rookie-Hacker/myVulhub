@@ -109,9 +109,29 @@ mkdir -p "$LOG_DIR" || error_exit "无法创建日志目录"
 log "复制应用文件..."
 # 检查 rsync 是否存在，如果不存在则使用 cp
 if command -v rsync >/dev/null 2>&1; then
-    rsync -av --exclude='.git' --exclude='*.swp' --exclude='*.swo' --exclude='__pycache__' --exclude='*.pyc' . "$APP_DIR/" || error_exit "文件复制失败"
+    rsync -av \
+        --exclude='.git' \
+        --exclude='venv' \
+        --exclude='.env' \
+        --exclude='*.swp' \
+        --exclude='*.swo' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='*.log' \
+        --exclude='deploy.sh' \
+        --exclude='uninstall.sh' \
+        . "$APP_DIR/" || error_exit "文件复制失败"
 else
-    cp -r . "$APP_DIR/" || error_exit "文件复制失败"
+    # cp 回退：排除无关文件
+    shopt -s dotglob 2>/dev/null || true
+    for item in *; do
+        case "$item" in
+            .git|venv|.env|__pycache__|deploy.sh|uninstall.sh) continue ;;
+            *.swp|*.swo|*.pyc|*.log) continue ;;
+        esac
+        cp -r "$item" "$APP_DIR/" 2>/dev/null || true
+    done
+    shopt -u dotglob 2>/dev/null || true
 fi
 
 cd "$APP_DIR" || error_exit "无法切换到应用目录"
@@ -142,7 +162,6 @@ Group=root
 WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin"
 Environment="VULHUB_PATH=${VULHUB_PATH:-/opt/vulhub}"
-Environment="FLASK_ENV=production"
 ExecStart=$VENV_DIR/bin/python run.py
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
