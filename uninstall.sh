@@ -118,23 +118,87 @@ done
 log "清理临时备份文件..."
 rm -rf /tmp/myVulhub_backup_* /tmp/myvulhub_backup_* 2>/dev/null || true
 
-log "清理可能的残留进程..."
+log "清理 Vulhub Docker 环境..."
+
+# 探测 vulhub 路径（环境变量 > 持久化配置 > 默认值）
+VULHUB_PATH="${VULHUB_PATH:-/opt/vulhub}"
+if [ -f "/root/.vulhub_manager_app_config.json" ]; then
+    SAVED_PATH=$(python3 -c "import json; c=json.load(open('/root/.vulhub_manager_app_config.json')); print(c.get('vulhub_path',''))" 2>/dev/null || true)
+    [ -n "$SAVED_PATH" ] && [ -d "$SAVED_PATH" ] && VULHUB_PATH="$SAVED_PATH"
+fi
+
+# 检测 compose 命令
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+else
+    COMPOSE_CMD=""
+fi
+
+if [ -d "$VULHUB_PATH" ] && [ -n "$COMPOSE_CMD" ]; then
+    # 1) 停止所有 vulhub compose 项目（仅 vulhub 目录下的）
+    compose_files=$(find "$VULHUB_PATH" -maxdepth 5 -name 'docker-compose.yml' 2>/dev/null)
+    if [ -n "$compose_files" ]; then
+        compose_count=$(echo "$compose_files" | wc -l)
+        log "正在停止 $compose_count 个 Compose 项目..."
+        echo "$compose_files" | while IFS= read -r compose_file; do
+            [ -z "$compose_file" ] && continue
+            env_dir=$(dirname "$compose_file")
+            $COMPOSE_CMD -f "$compose_file" --project-directory "$env_dir" down --timeout 5 2>/dev/null || true
+        done
+        log "Compose 项目停止完成"
+    else
+        log "未找到 Compose 文件"
+    fi
+
+    # 2) 提取 vulhub compose 文件中引用的镜像名
+    IMAGE_FILE=$(mktemp)
+    grep -rh '^\s*image:' "$VULHUB_PATH" --include='docker-compose.yml' 2>/dev/null | \
+        sed -e 's/.*image:[[:space:]]*//' -e 's/[#"].*//' -e 's/[[:space:]]*$//' | \
+        grep -v '^$' | sort -u > "$IMAGE_FILE"
+
+    image_count=$(wc -l < "$IMAGE_FILE" 2>/dev/null || echo 0)
+    if [ "$image_count" -gt 0 ]; then
+        log "发现 $image_count 个 Vulhub 相关镜像，开始删除..."
+        removed=0
+        skipped=0
+        while IFS= read -r img; do
+            [ -z "$img" ] && continue
+            if docker rmi "$img" 2>/dev/null; then
+                removed=$((removed + 1))
+            else
+                skipped=$((skipped + 1))
+            fi
+        done < "$IMAGE_FILE"
+        log "镜像清理: 删除 $removed 个, 跳过 $skipped 个（被占用或不存在）"
+    else
+        log "未发现 Vulhub 相关镜像"
+    fi
+    rm -f "$IMAGE_FILE"
+
+    # 3) 清理悬挂镜像（none:none），通常是 compose pull 失败的残留
+    dangling=$(docker images -f "dangling=true" -q 2>/dev/null)
+    if [ -n "$dangling" ]; then
+        log "清理悬挂镜像..."
+        echo "$dangling" | xargs -r docker rmi 2>/dev/null || true
+    fi
+elif [ -d "$VULHUB_PATH" ] && [ -z "$COMPOSE_CMD" ]; then
+    log "警告: 未检测到 docker compose，跳过 Docker 环境清理"
+elif [ ! -d "$VULHUB_PATH" ]; then
+    log "Vulhub 目录不存在 ($VULHUB_PATH)，跳过 Docker 环境清理"
+    log "提示: 如已拉取镜像需手动清理: docker images | grep -E '<image-name>' | awk '{print \$3}' | xargs docker rmi"
+fi
+
+log "清理残留进程..."
 # 精确匹配：仅终止 /opt/myVulhub 下的 run.py 进程
 pkill -f "/opt/myVulhub.*run.py" 2>/dev/null || true
-pkill -f "myVulhub" 2>/dev/null || true
 
 # 等待进程结束
 sleep 3
 
 # 强制终止（如果必要）
 pkill -9 -f "/opt/myVulhub.*run.py" 2>/dev/null || true
-pkill -9 -f "myVulhub" 2>/dev/null || true
-
-# 检查并清理关联的 Docker 容器（由该应用启动的）
-log "检查残留 Docker 容器..."
-docker ps -q 2>/dev/null | while read -r cid; do
-    docker stop "$cid" 2>/dev/null || true
-done || true
 
 log "验证卸载结果..."
 # 检查是否还有残留文件

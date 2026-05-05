@@ -105,16 +105,20 @@ def has_exploit(env_dir: Path):
 
 
 def get_exploit_files(env_dir: Path):
+    seen = set()
     exploit_files = []
     for sub in ['exploit', 'exploits', 'poc', 'pocs']:
         sub_dir = env_dir / sub
         if sub_dir.exists() and sub_dir.is_dir():
             for f in sub_dir.iterdir():
                 if f.is_file() and f.suffix in ['.py', '.sh', '.rb', '.go', '.c', '.cpp']:
-                    exploit_files.append(f)
+                    if f not in seen:
+                        seen.add(f)
+                        exploit_files.append(f)
     for pattern in ['*exploit*.py', '*exploit*.sh', 'poc.py', 'poc.sh', 'exp.py', 'PoC.py']:
         for f in env_dir.glob(pattern):
-            if f.is_file():
+            if f.is_file() and f not in seen:
+                seen.add(f)
                 exploit_files.append(f)
     return exploit_files
 

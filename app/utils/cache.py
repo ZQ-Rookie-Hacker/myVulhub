@@ -79,6 +79,6 @@ def save_persistent_cache(environments):
         }
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
-        print(f"已保存 {len(environments)} 个环境到持久化缓存")
+        logger.info(f"已保存 {len(environments)} 个环境到持久化缓存")
     except Exception as e:
-        print(f"保存缓存失败: {e}")
+        logger.error(f"保存缓存失败: {e}")

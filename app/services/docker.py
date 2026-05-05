@@ -44,8 +44,7 @@ class VulhubOperations:
                 if result.returncode != 0:
                     logger.error(f"代理拉取镜像失败: {name}, 错误: {result.stderr}")
                     return False, {"error": f"代理拉取镜像失败: {result.stderr or result.stdout}"}
-                else:
-                    logger.info(f"代理拉取镜像成功: {name}")
+                logger.info(f"代理拉取镜像成功: {name}")
             except subprocess.TimeoutExpired:
                 logger.error(f"代理拉取镜像超时: {name}")
                 return False, {"error": "代理拉取镜像超时"}
@@ -236,6 +235,7 @@ class VulhubOperations:
         ok, _, _ = self._run(['docker-compose', 'version'])
         if ok:
             return ['docker-compose']
+        logger.warning("未检测到 docker compose 或 docker-compose，使用默认值 'docker compose'")
         return ['docker', 'compose']
 
     def _cmd(self, args: List[str]) -> List[str]:

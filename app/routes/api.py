@@ -1,13 +1,12 @@
 # coding: utf-8
 import base64
 import json
-import shlex
 import subprocess
 import time
 from pathlib import Path
 from flask import Blueprint, jsonify, request, current_app
 
-from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE
+from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
 from app.utils.helpers import read_text, get_exploit_files, image_files
 from app.utils.cache import load_persistent_cache, save_persistent_cache
 from app.services.scanner import scan_environments_fs, get_env_dir_by_name, normalize_env_output
@@ -64,7 +63,7 @@ def api_scan():
             cache.set(cached_envs)
             return jsonify(cached_envs)
 
-    print("执行完整扫描...")
+    logger.info("执行完整扫描...")
     envs = scan_environments_fs()
     out = [normalize_env_output(e) for e in envs]
 
@@ -190,7 +189,9 @@ def api_start():
     ops = current_app.config['OPS']
     cache = current_app.config['ENV_CACHE']
     data = request.get_json(force=True)
-    name = data.get('name')
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({"success": False, "error": "缺少环境名称"}), 400
     use_proxy = data.get('use_proxy', False)
     ok, info = ops.start(name, use_proxy=use_proxy)
     if ok and cache.is_valid():
@@ -206,7 +207,9 @@ def api_stop():
     ops = current_app.config['OPS']
     cache = current_app.config['ENV_CACHE']
     data = request.get_json(force=True)
-    name = data.get('name')
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({"success": False, "error": "缺少环境名称"}), 400
     ok, info = ops.stop(name)
     if ok and cache.is_valid():
         for e in cache.get():
@@ -220,9 +223,9 @@ def api_stop():
 def api_remove_images():
     ops = current_app.config['OPS']
     data = request.get_json(force=True)
-    name = data.get('name')
+    name = (data.get('name') or '').strip()
     if not name:
-        return jsonify({"success": False, "error": "缺少环境名称"})
+        return jsonify({"success": False, "error": "缺少环境名称"}), 400
     ok, info = ops.remove_images(name)
     return jsonify({"success": ok, **(info or {})})
 
@@ -261,9 +264,8 @@ def api_wait_ready():
 @api_bp.route('/running')
 def api_running():
     try:
-        cmd = "docker ps --format {{json .}}"
         result = subprocess.run(
-            shlex.split(cmd),
+            ['docker', 'ps', '--format', '{{json .}}'],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -399,9 +401,9 @@ def api_refresh_cache():
 
         if CACHE_FILE.exists():
             CACHE_FILE.unlink()
-            print("已删除持久化缓存文件")
+            logger.info("已删除持久化缓存文件")
 
-        print("强制重新扫描所有环境...")
+        logger.info("强制重新扫描所有环境...")
         envs = scan_environments_fs()
 
         out = [normalize_env_output(e) for e in envs]
