@@ -327,7 +327,7 @@ def api_git_config():
     if request.method == 'GET':
         try:
             config = _load_git_config()
-            ok, stdout, stderr = ops._run(['git', 'remote', 'get-url', 'origin'], cwd=get_vulhub_path())
+            ok, stdout, stderr = ops.git_ops._run_git(['remote', 'get-url', 'origin'])
             if ok and stdout.strip():
                 config['remote_url'] = stdout.strip()
             return jsonify({
@@ -348,10 +348,16 @@ def api_git_config():
 
         try:
             if not (get_vulhub_path() / ".git").exists():
-                ops._run(['git', 'init'], cwd=get_vulhub_path())
-                ops._run(['git', 'remote', 'add', 'origin', remote_url], cwd=get_vulhub_path())
+                ok, _, err = ops.git_ops._run_git(['init'])
+                if not ok:
+                    return jsonify({"success": False, "error": f"Git 初始化失败: {err}"})
+                ok, _, err = ops.git_ops._run_git(['remote', 'add', 'origin', remote_url])
+                if not ok:
+                    return jsonify({"success": False, "error": f"添加远程仓库失败: {err}"})
             else:
-                ops._run(['git', 'remote', 'set-url', 'origin', remote_url], cwd=get_vulhub_path())
+                ok, _, err = ops.git_ops._run_git(['remote', 'set-url', 'origin', remote_url])
+                if not ok:
+                    return jsonify({"success": False, "error": f"设置远程仓库失败: {err}"})
 
             config = {
                 "remote_url": remote_url,

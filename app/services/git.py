@@ -248,7 +248,7 @@ class GitOperations:
             }
         return {}
 
-    def _run_git(self, args: List[str], use_proxychains: bool = False) -> Tuple[bool, str, str]:
+    def _run_git(self, args: List[str], use_proxychains: bool = False, _retry: bool = True) -> Tuple[bool, str, str]:
         if use_proxychains:
             cmd = ["proxychains4", "git"] + args
         else:
@@ -263,7 +263,21 @@ class GitOperations:
                 text=True,
                 timeout=GIT_OPERATION_TIMEOUT
             )
-            return result.returncode == 0, result.stdout, result.stderr
+            ok = result.returncode == 0
+            err = result.stderr
+            if not ok and _retry and 'detected dubious ownership' in err:
+                m = re.search(r"detected dubious ownership in repository at '([^']+)'", err)
+                if not m:
+                    m = re.search(r'at (.+)$', err)
+                if m:
+                    repo_dir = m.group(1).strip()
+                    logger.warning(f"检测到 Git 仓库所有者不匹配，自动配置 safe.directory: {repo_dir}")
+                    subprocess.run(
+                        ['git', 'config', '--global', '--add', 'safe.directory', repo_dir],
+                        check=False, timeout=10
+                    )
+                    return self._run_git(args, use_proxychains, _retry=False)
+            return ok, result.stdout, err
         except subprocess.TimeoutExpired:
             return False, "", f"Command timed out: {' '.join(cmd)}"
         except FileNotFoundError as e:
