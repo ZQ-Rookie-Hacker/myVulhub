@@ -8,7 +8,7 @@ from flask import Blueprint, jsonify, request, current_app
 
 from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
 from app.utils.helpers import read_text, get_exploit_files, image_files
-from app.utils.cache import load_persistent_cache, save_persistent_cache
+from app.utils.cache import load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker
 from app.services.scanner import scan_environments_fs, get_env_dir_by_name, normalize_env_output
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
@@ -60,6 +60,7 @@ def api_scan():
     if use_cache:
         cached_envs = load_persistent_cache()
         if cached_envs:
+            reconcile_cache_with_docker(cached_envs)
             cache.set(cached_envs)
             return jsonify(cached_envs)
 
@@ -203,10 +204,12 @@ def api_start():
     use_proxy = data.get('use_proxy', False)
     ok, info = ops.start(name, use_proxy=use_proxy)
     if ok and cache.is_valid():
-        for e in cache.get():
+        cached = cache.get()
+        for e in cached:
             if e.get("name") == name:
                 e["status"] = "running"
                 break
+        save_persistent_cache(cached)
     return jsonify({"success": ok, **(info or {})})
 
 
@@ -220,10 +223,12 @@ def api_stop():
         return jsonify({"success": False, "error": "缺少环境名称"}), 400
     ok, info = ops.stop(name)
     if ok and cache.is_valid():
-        for e in cache.get():
+        cached = cache.get()
+        for e in cached:
             if e.get("name") == name:
                 e["status"] = "stopped"
                 break
+        save_persistent_cache(cached)
     return jsonify({"success": ok, **(info or {})})
 
 

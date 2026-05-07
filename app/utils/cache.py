@@ -1,6 +1,7 @@
 # coding: utf-8
 import json
 import hashlib
+import subprocess
 from pathlib import Path
 
 from app.config import get_vulhub_path, CACHE_FILE, CACHE_TTL_MS, logger
@@ -82,3 +83,50 @@ def save_persistent_cache(environments):
         logger.info(f"已保存 {len(environments)} 个环境到持久化缓存")
     except Exception as e:
         logger.error(f"保存缓存失败: {e}")
+
+
+def reconcile_cache_with_docker(environments):
+    """通过 docker ps 获取实际运行状态，同步缓存中环境的状态"""
+    try:
+        result = subprocess.run(
+            ['docker', 'ps', '--format',
+             '{{.Label "com.docker.compose.project.working_dir"}}'],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        logger.debug("无法获取 Docker 运行状态，保持缓存原状态")
+        return
+
+    vulhub_path = get_vulhub_path()
+    running_dirs = set()
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                running_dirs.add(Path(line).resolve())
+            except Exception:
+                pass
+
+    if not running_dirs:
+        return
+
+    updated = 0
+    for env in environments:
+        try:
+            env_dir = (vulhub_path / env['name']).resolve()
+            if env_dir in running_dirs:
+                if env.get('status') != 'running':
+                    env['status'] = 'running'
+                    updated += 1
+            elif env.get('status') == 'running':
+                env['status'] = 'stopped'
+                updated += 1
+        except Exception:
+            pass
+
+    if updated:
+        logger.info(f"Docker 状态同步完成，更新了 {updated} 个环境状态")
