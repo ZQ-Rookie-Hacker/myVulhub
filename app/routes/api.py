@@ -55,12 +55,16 @@ def api_scan():
     cache = current_app.config['ENV_CACHE']
 
     if use_cache and cache.is_valid():
-        return jsonify(cache.get())
+        data = cache.get()
+        if reconcile_cache_with_docker(data):
+            save_persistent_cache(data)
+        return jsonify(data)
 
     if use_cache:
         cached_envs = load_persistent_cache()
         if cached_envs:
-            reconcile_cache_with_docker(cached_envs)
+            if reconcile_cache_with_docker(cached_envs):
+                save_persistent_cache(cached_envs)
             cache.set(cached_envs)
             return jsonify(cached_envs)
 
@@ -76,6 +80,7 @@ def api_scan():
 
     out = [normalize_env_output(e) for e in envs]
 
+    reconcile_cache_with_docker(out)
     cache.set(out)
     save_persistent_cache(out)
 
@@ -444,6 +449,7 @@ def api_refresh_cache():
 
         out = [normalize_env_output(e) for e in envs]
 
+        reconcile_cache_with_docker(out)
         cache.set(out)
         save_persistent_cache(out)
 

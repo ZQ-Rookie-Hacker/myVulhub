@@ -1,6 +1,7 @@
 # coding: utf-8
 import json
 import hashlib
+import re
 import subprocess
 from pathlib import Path
 
@@ -86,11 +87,17 @@ def save_persistent_cache(environments):
 
 
 def reconcile_cache_with_docker(environments):
-    """通过 docker ps 获取实际运行状态，同步缓存中环境的状态"""
+    """通过 docker ps 获取实际运行状态，同步缓存中环境的状态
+
+    使用容器名称匹配（跨平台安全），不依赖路径格式。
+    Docker Compose 容器命名规则:
+      - v2: <project>-<service>-<replica>
+      - v1: <project>_<service>_<replica>
+    其中 project 由目录名归一化得到。
+    """
     try:
         result = subprocess.run(
-            ['docker', 'ps', '--format',
-             '{{.Label "com.docker.compose.project.working_dir"}}'],
+            ['docker', 'ps', '--format', '{{.Names}}'],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -101,32 +108,56 @@ def reconcile_cache_with_docker(environments):
         logger.debug("无法获取 Docker 运行状态，保持缓存原状态")
         return
 
-    vulhub_path = get_vulhub_path()
-    running_dirs = set()
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line:
-            try:
-                running_dirs.add(Path(line).resolve())
-            except Exception:
-                pass
-
-    if not running_dirs:
-        return
+    running_names = [ln.strip().lower() for ln in result.stdout.splitlines() if ln.strip()]
+    if not running_names:
+        # 没有任何容器在运行，将所有 running 状态修正为 stopped
+        updated = 0
+        for env in environments:
+            if env.get('status') == 'running':
+                env['status'] = 'stopped'
+                updated += 1
+        if updated:
+            logger.info("Docker 状态同步：无运行中容器，修正了 %d 个环境状态", updated)
+        return updated > 0
 
     updated = 0
     for env in environments:
-        try:
-            env_dir = (vulhub_path / env['name']).resolve()
-            if env_dir in running_dirs:
-                if env.get('status') != 'running':
-                    env['status'] = 'running'
-                    updated += 1
-            elif env.get('status') == 'running':
-                env['status'] = 'stopped'
-                updated += 1
-        except Exception:
-            pass
+        basename = Path(env['name']).name
+        # 归一化为 Docker Compose 项目名的常见形式
+        variants = _project_name_variants(basename)
+        is_running = any(
+            any(cname.startswith(v + sep) for sep in ('_', '-'))
+            for v in variants for cname in running_names
+        )
+        if is_running and env.get('status') != 'running':
+            env['status'] = 'running'
+            updated += 1
+        elif not is_running and env.get('status') == 'running':
+            env['status'] = 'stopped'
+            updated += 1
 
     if updated:
         logger.info(f"Docker 状态同步完成，更新了 {updated} 个环境状态")
+    return updated > 0
+
+
+def _project_name_variants(basename: str):
+    """生成目录名可能的 Docker Compose 项目名变体
+
+    Docker Compose v2: 非字母数字/下划线 → 连字符，连续连字符合并
+    Docker Compose v1: 去除非字母数字
+    容器名: <项目名> + 分隔符(-或_) + <service> + 分隔符 + <副本编号>
+    """
+    lower = basename.lower()
+    # v2: 非 [a-z0-9_] → 连字符，合并连续连字符，去首尾连字符
+    v2 = re.sub(r'[^a-z0-9_]', '-', lower)
+    v2 = re.sub(r'-{2,}', '-', v2).strip('-')
+    # v1: 仅保留字母数字
+    v1 = re.sub(r'[^a-z0-9]', '', lower)
+    variants = {lower, v1, v2}
+    # 连字符版本 → 下划线版本（v1 可能在 v2 基础上把 - 全换成 _）
+    if '-' in v2:
+        variants.add(v2.replace('-', '_'))
+    if '_' in v2:
+        variants.add(v2.replace('_', '-'))
+    return variants
