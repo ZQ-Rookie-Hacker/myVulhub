@@ -8,8 +8,9 @@ from flask import Blueprint, jsonify, request, current_app
 
 from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
 from app.utils.helpers import read_text, get_exploit_files, image_files
-from app.utils.cache import load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker
+from app.utils.cache import load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker, get_running_containers_json
 from app.services.scanner import scan_environments_fs, get_env_dir_by_name, normalize_env_output
+from app.services.docker import _PULL_LOG, _PULL_EXIT
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -18,7 +19,6 @@ try:
     import markdown as md_lib
 except Exception:
     md_lib = None
-
 
 
 def _load_git_config():
@@ -263,17 +263,14 @@ def api_pull_stream():
     use_proxy = request.args.get('proxy', 'false').lower() == 'true'
 
     def gen():
-        exit_ok = None
-        for line in ops.pull_images_stream(name, use_proxy=use_proxy):
-            if line.startswith('[EXIT_CODE:0]'):
-                exit_ok = True
-            elif line.startswith('[EXIT_CODE:'):
-                exit_ok = False
-                code = line[11:-1] if line.endswith(']') else line[11:]
-                yield f"event: log\ndata: [Error] 镜像拉取失败，退出码: {code}\n\n"
-            else:
-                yield f"event: log\ndata: {line}\n\n"
-        if exit_ok is True:
+        exit_code = None
+        for item in ops.pull_images_stream(name, use_proxy=use_proxy):
+            kind = item[0]
+            if kind == _PULL_LOG:
+                yield f"event: log\ndata: {item[1]}\n\n"
+            elif kind == _PULL_EXIT:
+                exit_code = item[1]
+        if exit_code == 0:
             yield "event: done\ndata: ok\n\n"
         else:
             yield "event: done\ndata: error\n\n"
@@ -285,49 +282,19 @@ def api_pull_stream():
 def api_wait_ready():
     ops = current_app.config['OPS']
     name = request.args.get('name', '')
-    timeout = int(request.args.get('timeout', '20'))
+    try:
+        timeout = int(request.args.get('timeout', '20'))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "timeout 参数非法"}), 400
     ok, info = ops.wait_ready(name, timeout=timeout)
     return jsonify({"success": ok, **(info or {})})
 
 
 @api_bp.route('/running')
 def api_running():
-    try:
-        result = subprocess.run(
-            ['docker', 'ps', '--format', '{{json .}}'],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        containers = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except Exception:
-                continue
-            containers.append({
-                "id": (obj.get("ID") or "")[:12],
-                "name": obj.get("Names") or "",
-                "image": obj.get("Image") or "",
-                "status": obj.get("Status") or "",
-                "ports": obj.get("Ports") or ""
-            })
-
-        return jsonify({"success": True, "containers": containers})
-    except subprocess.CalledProcessError as e:
-        return jsonify({
-            "success": False,
-            "error": f"docker ps 失败：{e.stderr.strip() or e.stdout.strip()}"
-        }), 500
-    except FileNotFoundError:
-        return jsonify({
-            "success": False,
-            "error": "找不到 docker 指令，请确认已安装 Docker 并在 PATH 中。"
-        }), 500
+    """获取运行中容器列表"""
+    containers = get_running_containers_json()
+    return jsonify({"success": True, "containers": containers})
 
 
 @api_bp.route('/git-config', methods=['GET', 'POST'])
@@ -413,12 +380,16 @@ def _sync_with_gh_cli(remote_url: str = None):
                 repo_url = remote_url
             else:
                 repo_url = "vulhub/vulhub"
-            # 空目录会导致 clone 失败，先删除
-            if vulhub_path.exists() and not any(vulhub_path.iterdir()):
-                try:
-                    vulhub_path.rmdir()
-                except Exception:
-                    pass
+            # 空目录导致 clone 失败，先删除 — 加存在性再确认避免 TOCTOU
+            if vulhub_path.exists():
+                contents = list(vulhub_path.iterdir())
+                if not contents:
+                    try:
+                        vulhub_path.rmdir()
+                    except OSError:
+                        return {"success": False, "error": f"无法删除空目录: {vulhub_path}"}
+                else:
+                    return {"success": False, "error": f"目录非空且无 .git: {vulhub_path}"}
             cmd = ['gh', 'repo', 'clone', repo_url, str(vulhub_path)]
             result = subprocess.run(cmd, capture_output=True, text=True)
         else:
@@ -477,8 +448,6 @@ def api_vulhub_path():
     if not ok:
         return jsonify({"success": False, "error": msg}), 400
 
-    current_app.config['VULHUB_PATH'] = Path(msg)
-
     cache = current_app.config['ENV_CACHE']
     cache.clear()
     if CACHE_FILE.exists():
@@ -487,7 +456,8 @@ def api_vulhub_path():
         except Exception:
             pass
 
+    # 使用封装方法更新 Git 路径
     ops = current_app.config['OPS']
-    ops.git_ops.vulhub_path = Path(msg)
+    ops.git_ops.set_path(Path(msg))
 
     return jsonify({"success": True, "path": msg, "message": "路径已更新，缓存已清除"})

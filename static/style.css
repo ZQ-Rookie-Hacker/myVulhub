@@ -20,6 +20,7 @@
 .tag{background:#f4f6fb;border:1px solid #e9edf7;border-radius:999px;padding:4px 8px;font-size:12px}
 .tag-port{background:#eef9ff;border-color:#d5ecff}
 .tag-exploit{background:#fff0f3;border-color:#ffd9e0}
+.tag-docker{background:#d1fae5;color:#065f46;border-color:#a7f3d0}
 .env-actions{display:flex;gap:8px;margin-top:2px}
 .btn{border:1px solid #e4e7ef;border-radius:10px;background:#fff;padding:8px 12px;cursor:pointer}
 .btn:hover{filter:brightness(.98)}
@@ -37,4 +38,67 @@
 .loading{display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(255,255,255,.55);backdrop-filter:blur(2px);z-index:60;align-items:center;justify-content:center}
 .spinner{width:36px;height:36px;border:4px solid #dfe7ff;border-top-color:#4f46e5;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.screenshot{max-width:100%;border-radius:12px;border:1px soli
+.screenshot{max-width:100%;border-radius:12px;border:1px solid #e5e7eb;margin:6px 0}
+
+/* ====== 全局遮罩弹窗 (通用) ====== */
+.overlay-backdrop{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10000;backdrop-filter:blur(4px)}
+.overlay-backdrop.git-sync{background:rgba(0,0,0,.5)}
+.overlay-backdrop.pull-dialog{background:linear-gradient(135deg,rgba(106,89,198,.7),rgba(111,117,209,.7))}
+.overlay-backdrop.path-dialog{background:rgba(0,0,0,.4)}
+
+/* ====== 通用弹窗卡片 ====== */
+.dialog-card{background:#fff;padding:24px;border-radius:16px;max-width:520px;width:90%;box-shadow:0 16px 40px rgba(0,0,0,.2);animation:dialogIn .3s ease-out}
+.dialog-card.git-sync{max-width:500px}
+.dialog-card.pull-dialog{box-shadow:0 20px 50px rgba(0,0,0,.3),0 0 0 1px rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);background:linear-gradient(135deg,#fff 0%,#f8fafc 100%)}
+.dialog-card h3{margin:0 0 16px 0;color:#1e293b;font-size:20px;display:flex;align-items:center}
+.dialog-card h3.pull-title{margin:0 0 12px 0}
+
+@keyframes dialogIn{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ====== 按钮行 ====== */
+.dialog-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:4px}
+.dialog-actions .btn{padding:10px 20px;font-weight:500;border-radius:8px;transition:all .2s}
+.dialog-actions .btn:hover{transform:translateY(-2px)}
+
+/* ====== 代理选项 ====== */
+.proxy-option{display:flex;align-items:center;margin:18px 0;padding:14px;background:linear-gradient(to right,#f0f9ff,#e0f2fe);border-radius:10px;border:1px solid #bae6fd}
+.proxy-option input[type="checkbox"]{position:absolute;opacity:0;width:0;height:0}
+.proxy-option .custom-checkbox{width:18px;height:18px;border:2px solid #6366f1;border-radius:4px;display:inline-block;position:relative;cursor:pointer;margin-right:8px;vertical-align:middle;background:#fff;flex-shrink:0}
+.proxy-option input:checked~.custom-checkbox{background:#6366f1}
+.proxy-option input:checked~.custom-checkbox::after{content:"✓";position:absolute;top:-2px;left:2px;color:#fff;font-size:12px;font-weight:bold}
+.proxy-option label:not(.check-label){cursor:default;margin-left:10px;color:#0c4a6e;font-weight:500;flex-grow:1}
+
+/* ====== 镜像列表 / 提示 ====== */
+.image-list-box{background:#f1f5f9;border-radius:10px;padding:16px;margin:12px 0;max-height:180px;overflow-y:auto;border:1px solid #e2e8f0}
+.image-list-box h4{margin:0 0 10px 0;font-size:14px;color:#475569;display:flex;align-items:center}
+.image-list-box ul{margin:0;padding-left:16px}
+.image-list-box li{margin-bottom:6px;font-family:monospace;font-size:13px;color:#475569;background:#f8fafc;padding:4px 8px;border-radius:6px;border-left:3px solid #6366f1}
+.hint-box{color:#64748b;display:block;margin:12px 0 20px 0;padding:10px;background:#fefce8;border-radius:8px;border-left:3px solid #fbbf24;font-size:13px}
+
+/* ====== 设置卡片 ====== */
+.settings-info{background:linear-gradient(135deg,#f8f9fa 0%,#e9ecef 100%);border:1px solid #e0e0e0;border-radius:8px;padding:16px;margin-bottom:16px;font-size:.9em;box-shadow:0 2px 4px rgba(0,0,0,.05)}
+.settings-info .settings-row{display:flex;align-items:center;margin-bottom:4px}
+.settings-info .settings-label{color:#6c757d;font-size:.85em;min-width:80px}
+.settings-info .settings-value{font-family:'Courier New',monospace;padding:2px 6px;border-radius:3px;font-size:.85em;word-break:break-all}
+.settings-info .settings-hint{font-size:.8em;color:#6c757d;font-style:italic;margin-top:8px}
+
+/* ====== notification ====== */
+.notification{position:fixed;right:16px;top:-80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;opacity:0;transition:all .3s;z-index:99999}
+.notification.show{top:16px;opacity:1}
+.notification-info{background:#3b82f6}
+.notification-warning{background:#f59e0b}
+.notification-error{background:#ef4444}
+.notification-success{background:#10b981}
+
+/* ====== loading ====== */
+#loading{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9999;background:rgba(255,255,255,.55);backdrop-filter:blur(2px)}
+.loading-box{background:#fff;padding:16px 20px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+.code-block{background:#0f172a;color:#e5e7eb;padding:12px;border-radius:8px;overflow:auto}
+#progressLog{height:240px;width:100%;background:#0f172a;color:#e5e7eb;padding:10px;border-radius:8px;overflow:auto;white-space:pre}
+
+/* ====== 表单元素 ====== */
+.form-input{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-family:monospace;font-size:14px}
+.form-input:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.2)}
+.form-select{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px}
+.form-label{display:block;margin-bottom:8px;font-weight:600}
+.btn-icon{background:none;border:none;font-size:18px;cursor:pointer;padding:4px}

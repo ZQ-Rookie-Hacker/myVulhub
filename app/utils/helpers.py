@@ -3,7 +3,6 @@ import time
 import functools
 import subprocess
 from pathlib import Path
-from flask import jsonify
 
 from app.config import logger
 
@@ -12,14 +11,41 @@ def now_ms():
     return int(time.time() * 1000)
 
 
-def api_response(success, data=None, message="", code=200):
-    response = {
-        "success": success,
-        "message": message,
-        "timestamp": now_ms(),
-        "data": data
-    }
-    return jsonify(response), code
+def handle_subprocess_errors(tool_name: str):
+    """参数化错误装饰器，消除 Docker/Git 两套重复代码"""
+    def _safe_decode(data):
+        """安全解码 subprocess 输出（兼容 text=True 返回 str 的场景）"""
+        if data is None:
+            return ""
+        if isinstance(data, bytes):
+            return data.decode('utf-8', errors='ignore').strip()
+        return str(data).strip()
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except subprocess.TimeoutExpired:
+                logger.error("%s操作超时", tool_name)
+                return False, {"error": f"{tool_name}操作超时"}
+            except subprocess.CalledProcessError as e:
+                error_msg = _safe_decode(e.stderr) or _safe_decode(e.stdout) or str(e)
+                logger.error("%s命令执行失败: %s", tool_name, error_msg)
+                return False, {"error": f"{tool_name}命令执行失败: {error_msg}"}
+            except FileNotFoundError:
+                logger.error("%s未安装或不可用", tool_name)
+                return False, {"error": f"{tool_name}未安装或不可用"}
+            except Exception as e:
+                logger.error("%s操作异常: %s", tool_name, str(e))
+                return False, {"error": f"{tool_name}操作异常: {str(e)}"}
+        return wrapper
+    return decorator
+
+
+# 向后兼容别名
+handle_docker_errors = handle_subprocess_errors("Docker")
+handle_git_errors = handle_subprocess_errors("Git")
 
 
 def read_text(p: Path):
@@ -32,62 +58,6 @@ def read_text(p: Path):
             return p.read_text(encoding='utf-8', errors='ignore')
     except Exception:
         return ''
-
-
-def handle_docker_errors(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except subprocess.TimeoutExpired:
-            logger.error("Docker操作超时")
-            return False, {"error": "Docker操作超时"}
-        except subprocess.CalledProcessError as e:
-            try:
-                error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else ""
-                if not error_msg:
-                    error_msg = e.stdout.decode('utf-8', errors='ignore').strip() if e.stdout else ""
-                if not error_msg:
-                    error_msg = str(e)
-            except Exception:
-                error_msg = str(e)
-            logger.error(f"Docker命令执行失败: {error_msg}")
-            return False, {"error": f"Docker命令执行失败: {error_msg}"}
-        except FileNotFoundError:
-            logger.error("Docker未安装或不可用")
-            return False, {"error": "Docker未安装或不可用"}
-        except Exception as e:
-            logger.error(f"Docker操作异常: {str(e)}")
-            return False, {"error": f"Docker操作异常: {str(e)}"}
-    return wrapper
-
-
-def handle_git_errors(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except subprocess.TimeoutExpired:
-            logger.error("Git操作超时")
-            return False, {"error": "Git操作超时"}
-        except subprocess.CalledProcessError as e:
-            try:
-                error_msg = e.stderr.decode('utf-8', errors='ignore').strip() if e.stderr else ""
-                if not error_msg:
-                    error_msg = e.stdout.decode('utf-8', errors='ignore').strip() if e.stdout else ""
-                if not error_msg:
-                    error_msg = str(e)
-            except Exception:
-                error_msg = str(e)
-            logger.error(f"Git命令执行失败: {error_msg}")
-            return False, {"error": f"Git命令执行失败: {error_msg}"}
-        except FileNotFoundError:
-            logger.error("Git未安装或不可用")
-            return False, {"error": "Git未安装或不可用"}
-        except Exception as e:
-            logger.error(f"Git操作异常: {str(e)}")
-            return False, {"error": f"Git操作异常: {str(e)}"}
-    return wrapper
 
 
 def has_exploit(env_dir: Path):

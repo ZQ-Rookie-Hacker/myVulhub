@@ -1,4 +1,5 @@
 # coding: utf-8
+import os
 import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Any
@@ -32,7 +33,7 @@ def scan_environments_fs(vulhub_path: Path = None) -> List[Dict[str, Any]]:
     if docker_images:
         logger.info(f"已獲取本地 {len(docker_images)} 個 Docker 鏡像，將用於快速檢查")
 
-    max_workers = min(4, max(1, total // 10 + 1))
+    max_workers = min(8, (os.cpu_count() or 4), max(1, total // 15 + 1))
 
     def process_single_env(compose_path):
         try:
@@ -48,7 +49,7 @@ def scan_environments_fs(vulhub_path: Path = None) -> List[Dict[str, Any]]:
             has_readme_zh = any((env_dir / n).exists() for n in ('README.zh-cn.md', 'README.zh-CN.md', 'README_zh.md'))
 
             imgs = image_files(env_dir)
-            has_docker_images = check_docker_images_exist(compose_path, fast_mode=False, local_images=docker_images)
+            has_docker_images = check_docker_images_exist(compose_path, local_images=docker_images)
 
             return {
                 "name": rel,
@@ -87,57 +88,17 @@ def scan_environments_fs(vulhub_path: Path = None) -> List[Dict[str, Any]]:
 
 
 def normalize_env_output(env_data) -> Dict[str, Any]:
-    """标准化环境数据输出"""
-    if isinstance(env_data, dict):
-        return {
-            "name": env_data.get("name"),
-            "category": env_data.get("category"),
-            "cve": env_data.get("cve"),
-            "status": env_data.get("status", "unknown"),
-            "ports": env_data.get("ports") or {},
-            "services": env_data.get("services") or [],
-            "has_exploit": bool(env_data.get("has_exploit")),
-            "has_images": bool(env_data.get("has_images")),
-            "has_readme": bool(env_data.get("has_readme")),
-            "has_readme_zh": bool(env_data.get("has_readme_zh")),
-            "has_docker_images": bool(env_data.get("has_docker_images", False)),
-        }
-    else:
-        name = getattr(env_data, 'name', None) or getattr(env_data, 'path', None)
-        vulhub_path = get_vulhub_path()
-        if name and isinstance(name, str) and name.startswith(str(vulhub_path)):
-            rel = Path(name).resolve().relative_to(vulhub_path).as_posix()
-        else:
-            rel = name
-        category = getattr(env_data, 'category', None)
-        cve = getattr(env_data, 'cve', None)
-        status = getattr(env_data, 'status', 'unknown')
-        ports = getattr(env_data, 'ports', {}) or {}
-        services = getattr(env_data, 'services', []) or []
-        has_exploit_val = bool(getattr(env_data, 'has_exploit', False))
-        images = getattr(env_data, 'images', []) or []
-        has_images_val = bool(images)
-        has_readme = bool(getattr(env_data, 'has_readme', False))
-        has_readme_zh = bool(getattr(env_data, 'has_readme_zh', False))
-        has_docker_images = bool(getattr(env_data, 'has_docker_images', False))
-
-        if (not category or not cve) and isinstance(rel, str):
-            parts = rel.split('/')
-            if not category and parts:
-                category = parts[0]
-            if not cve and parts:
-                cve = parts[-1]
-
-        return {
-            "name": rel,
-            "category": category or 'unknown',
-            "cve": cve or 'unknown',
-            "status": status or 'unknown',
-            "ports": ports,
-            "services": services,
-            "has_exploit": has_exploit_val,
-            "has_images": has_images_val,
-            "has_readme": has_readme,
-            "has_readme_zh": has_readme_zh,
-            "has_docker_images": has_docker_images,
-        }
+    """标准化环境数据输出（仅处理 dict 类型，扫描器始终返回 dict）"""
+    return {
+        "name": env_data.get("name"),
+        "category": env_data.get("category"),
+        "cve": env_data.get("cve"),
+        "status": env_data.get("status", "unknown"),
+        "ports": env_data.get("ports") or {},
+        "services": env_data.get("services") or [],
+        "has_exploit": bool(env_data.get("has_exploit")),
+        "has_images": bool(env_data.get("has_images")),
+        "has_readme": bool(env_data.get("has_readme")),
+        "has_readme_zh": bool(env_data.get("has_readme_zh")),
+        "has_docker_images": bool(env_data.get("has_docker_images", False)),
+    }

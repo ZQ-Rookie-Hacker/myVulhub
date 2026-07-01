@@ -3,17 +3,17 @@ import re
 import json
 import time
 import subprocess
+import concurrent.futures
 from pathlib import Path
 from typing import Tuple, Dict, Any, List
+from urllib.request import urlopen, Request
 
-from app.config import get_vulhub_path, DOCKER_TIMEOUT, DOCKER_STOP_TIMEOUT, logger
+from app.config import get_vulhub_path, DOCKER_TIMEOUT, DOCKER_STOP_TIMEOUT, DOCKER_IMAGE_CHECK_TIMEOUT, logger
 from app.utils.compose import fallback_parse_images
 
-try:
-    from urllib.request import urlopen, Request
-    from urllib.error import URLError, HTTPError
-except Exception:
-    urlopen = None
+# SSE 流信号：用 sentinel tuple 替代魔术字符串 [EXIT_CODE:N]，避免与 Docker pull 输出冲突
+_PULL_LOG = "log"
+_PULL_EXIT = "exit"
 
 
 class VulhubOperations:
@@ -97,7 +97,7 @@ class VulhubOperations:
 
         missing: List[str] = []
         for img in images:
-            ok2, _, _ = self._run(['docker', 'image', 'inspect', img])
+            ok2, _, _ = self._run(['docker', 'image', 'inspect', img], timeout=DOCKER_IMAGE_CHECK_TIMEOUT)
             if not ok2:
                 missing.append(img)
                 logger.debug(f"镜像缺失: {img}")
@@ -106,50 +106,65 @@ class VulhubOperations:
         return True, {"missing": missing}
 
     def pull_images_stream(self, name: str, use_proxy: bool = False):
+        """流式拉取镜像。yield ('log', line) 或 ('exit', return_code) 元组
+
+        客户端断开时通过 finally 块确保子进程被终止，防止僵尸进程泄漏。
+        """
         logger.info(f"开始拉取环境镜像: {name}, 代理模式: {use_proxy}")
         env_dir = self._env_dir(name)
         if not env_dir:
             logger.error(f"拉取镜像失败: 找不到环境 {name}")
-            yield "[Error] 找不到环境"
+            yield (_PULL_LOG, "[Error] 找不到环境")
+            yield (_PULL_EXIT, -1)
             return
 
         cmd = self._cmd(['pull'])
         if use_proxy:
             cmd = ['proxychains4'] + cmd
+
+        proc = None
         try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(env_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
-            )
-            logger.debug(f"启动Docker进程: {' '.join(cmd)}")
-        except FileNotFoundError:
-            if use_proxy:
-                logger.error("proxychains4 或 Docker命令未找到")
-                yield "[Error] 找不到 proxychains4 或 docker 指令，请确认已安装并配置正确。"
-            else:
-                logger.error("Docker命令未找到")
-                yield "[Error] 找不到 docker 指令，请确认已安装 Docker 并在 PATH 中。"
-            return
-        except Exception as e:
-            logger.error(f"启动Docker进程失败: {e}")
-            yield f"[Error] 启动Docker进程失败: {str(e)}"
-            return
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(env_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                logger.debug(f"启动Docker进程: {' '.join(cmd)}")
+            except FileNotFoundError:
+                msg = ("找不到 proxychains4 或 docker 指令，请确认已安装并配置正确。"
+                       if use_proxy else "找不到 docker 指令，请确认已安装 Docker 并在 PATH 中。")
+                logger.error(msg)
+                yield (_PULL_LOG, f"[Error] {msg}")
+                yield (_PULL_EXIT, -1)
+                return
+            except Exception as e:
+                logger.error(f"启动Docker进程失败: {e}")
+                yield (_PULL_LOG, f"[Error] 启动Docker进程失败: {str(e)}")
+                yield (_PULL_EXIT, -1)
+                return
 
-        if proc.stdout:
-            for line in proc.stdout:
-                yield line.rstrip('\n')
+            if proc.stdout:
+                for line in proc.stdout:
+                    yield (_PULL_LOG, line.rstrip('\n'))
 
-        return_code = proc.wait()
-        if return_code == 0:
-            logger.info(f"镜像拉取成功: {name}")
-            yield f"[EXIT_CODE:0]"
-        else:
-            logger.warning(f"镜像拉取异常退出: {name}, 退出码: {return_code}")
-            yield f"[EXIT_CODE:{return_code}]"
+            return_code = proc.wait()
+            logger.info(f"镜像拉取{'成功' if return_code == 0 else '失败'}: {name}, 退出码: {return_code}")
+            yield (_PULL_EXIT, return_code)
+        finally:
+            if proc is not None and proc.poll() is None:
+                # 客户端断开或异常退出 → 终止子进程
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                except Exception:
+                    pass
 
     def remove_images(self, name: str) -> Tuple[bool, Dict[str, Any]]:
         logger.info(f"开始删除环境镜像: {name}")
@@ -201,25 +216,36 @@ class VulhubOperations:
         return True, result
 
     def wait_ready(self, name: str, timeout: int = 20) -> Tuple[bool, Dict[str, Any]]:
-        if urlopen is None:
-            return True, {"ready": False}
-
+        """并发探测所有 host 端口，任一 HTTP 200 即视为就绪"""
         env_dir = self._env_dir(name)
         if not env_dir:
             return True, {"ready": False}
 
         deadline = time.time() + max(1, int(timeout))
+        ports = self._pick_host_ports(env_dir)
+
+        def _probe(port):
+            """单个端口探测，成功返回端口号"""
+            for scheme in ('http', 'https'):
+                try:
+                    req = Request(f"{scheme}://127.0.0.1:{port}", headers={'User-Agent': 'curl/8'})
+                    with urlopen(req, timeout=2) as resp:
+                        return port
+                except Exception:
+                    continue
+            return None
 
         while time.time() < deadline:
-            ports = self._pick_host_ports(env_dir)
-            for port in ports:
-                for scheme in ('http', 'https'):
-                    try:
-                        req = Request(f"{scheme}://127.0.0.1:{port}", headers={'User-Agent': 'curl/8'})
-                        with urlopen(req, timeout=2) as resp:
-                            return True, {"ready": True, "port": port}
-                    except (URLError, HTTPError, Exception):
-                        continue
+            if not ports:
+                time.sleep(1.0)
+                continue
+            # 并发探测所有端口
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ports), 4)) as executor:
+                futures = [executor.submit(_probe, p) for p in ports]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        return True, {"ready": True, "port": result}
             time.sleep(1.0)
 
         return True, {"ready": False}

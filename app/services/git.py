@@ -14,6 +14,11 @@ class GitOperations:
     def __init__(self, vulhub_path: Path = None):
         self.vulhub_path = vulhub_path or get_vulhub_path()
 
+    def set_path(self, new_path: Path):
+        """更新 vulhub 路径（供路径变更时外部调用）"""
+        self.vulhub_path = Path(new_path)
+        logger.info(f"GitOperations 路径已更新: {self.vulhub_path}")
+
     @handle_git_errors
     def sync_vulhub(self, method: str = "https", remote_url: str = None) -> Tuple[bool, Dict[str, Any]]:
         if not self.vulhub_path.exists():

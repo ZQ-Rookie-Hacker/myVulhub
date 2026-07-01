@@ -5,8 +5,12 @@ import re
 import subprocess
 from pathlib import Path
 
-from app.config import get_vulhub_path, CACHE_FILE, CACHE_TTL_MS, logger
+from app.config import get_vulhub_path, CACHE_FILE, CACHE_TTL_MS, DOCKER_PS_TIMEOUT, logger
 from app.utils.helpers import now_ms
+
+# docker ps 短期缓存，避免同一请求周期内多次调用
+_docker_ps_cache = {"data": None, "ts": 0}
+_DOCKER_PS_CACHE_TTL_MS = 2000  # 2 秒
 
 
 class EnvCache:
@@ -31,12 +35,70 @@ class EnvCache:
         self.hash = None
 
 
+def _get_running_container_names() -> set:
+    """获取当前运行中的容器名称集合（带 2s 短期缓存）"""
+    global _docker_ps_cache
+    now = now_ms()
+    if _docker_ps_cache["data"] is not None and (now - _docker_ps_cache["ts"]) < _DOCKER_PS_CACHE_TTL_MS:
+        return _docker_ps_cache["data"]
+
+    try:
+        result = subprocess.run(
+            ['docker', 'ps', '--format', '{{.Names}}'],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=DOCKER_PS_TIMEOUT
+        )
+        names = {ln.strip().lower() for ln in result.stdout.splitlines() if ln.strip()}
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        names = set()
+
+    _docker_ps_cache["data"] = names
+    _docker_ps_cache["ts"] = now
+    return names
+
+
+def get_running_containers_json():
+    """获取运行中容器列表（JSON 格式），供 /api/running 复用"""
+    try:
+        result = subprocess.run(
+            ['docker', 'ps', '--format', '{{json .}}'],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=DOCKER_PS_TIMEOUT
+        )
+        containers = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            containers.append({
+                "id": (obj.get("ID") or "")[:12],
+                "name": obj.get("Names") or "",
+                "image": obj.get("Image") or "",
+                "status": obj.get("Status") or "",
+                "ports": obj.get("Ports") or ""
+            })
+        return containers
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
 def calculate_vulhub_hash():
+    """计算 vulhub 目录结构哈希（sha256，仅取前 16 位用于快速比对）"""
     try:
         vulhub_path = get_vulhub_path()
         compose_files = list(vulhub_path.rglob('docker-compose.yml'))
         paths_str = ''.join(sorted([str(f.relative_to(vulhub_path)) for f in compose_files]))
-        return hashlib.md5(paths_str.encode()).hexdigest()
+        return hashlib.sha256(paths_str.encode()).hexdigest()[:16]
     except Exception:
         return None
 
@@ -86,31 +148,16 @@ def save_persistent_cache(environments):
         logger.error(f"保存缓存失败: {e}")
 
 
-def reconcile_cache_with_docker(environments):
+def reconcile_cache_with_docker(environments) -> bool:
     """通过 docker ps 获取实际运行状态，同步缓存中环境的状态
 
     使用容器名称匹配（跨平台安全），不依赖路径格式。
-    Docker Compose 容器命名规则:
-      - v2: <project>-<service>-<replica>
-      - v1: <project>_<service>_<replica>
-    其中 project 由目录名归一化得到。
+    匹配规则：运行容器名 == 项目名变体  或  以 项目名变体+分隔符 开头。
+    返回 bool：是否有状态变更（始终返回 bool）。
     """
-    try:
-        result = subprocess.run(
-            ['docker', 'ps', '--format', '{{.Names}}'],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=10
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        logger.debug("无法获取 Docker 运行状态，保持缓存原状态")
-        return
+    running_names = _get_running_container_names()
 
-    running_names = [ln.strip().lower() for ln in result.stdout.splitlines() if ln.strip()]
     if not running_names:
-        # 没有任何容器在运行，将所有 running 状态修正为 stopped
         updated = 0
         for env in environments:
             if env.get('status') == 'running':
@@ -123,11 +170,11 @@ def reconcile_cache_with_docker(environments):
     updated = 0
     for env in environments:
         basename = Path(env['name']).name
-        # 归一化为 Docker Compose 项目名的常见形式
         variants = _project_name_variants(basename)
+        # 精确匹配：容器名 == 变体 或 容器名以 变体+_ 或 变体+- 开头
         is_running = any(
-            any(cname.startswith(v + sep) for sep in ('_', '-'))
-            for v in variants for cname in running_names
+            c == v or c.startswith(v + '_') or c.startswith(v + '-')
+            for v in variants for c in running_names
         )
         if is_running and env.get('status') != 'running':
             env['status'] = 'running'
@@ -141,8 +188,8 @@ def reconcile_cache_with_docker(environments):
     return updated > 0
 
 
-def _project_name_variants(basename: str):
-    """生成目录名可能的 Docker Compose 项目名变体
+def _project_name_variants(basename: str) -> set:
+    """生成目录名可能的 Docker Compose 项目名变体集合
 
     Docker Compose v2: 非字母数字/下划线 → 连字符，连续连字符合并
     Docker Compose v1: 去除非字母数字

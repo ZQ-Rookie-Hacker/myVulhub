@@ -18,12 +18,20 @@ CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 DOCKER_TIMEOUT = 90
 DOCKER_STOP_TIMEOUT = 20
-DOCKER_IMAGE_CHECK_TIMEOUT = 2
+DOCKER_IMAGE_CHECK_TIMEOUT = 5
+DOCKER_PS_TIMEOUT = 10
 GIT_OPERATION_TIMEOUT = 120
+
+# ---- vulhub 路径（带内存缓存，避免每次读磁盘） ----
+_vulhub_path_cache = None
 
 
 def get_vulhub_path() -> Path:
-    """获取 vulhub 路径，优先级：持久化配置 > 环境变量 > 默认值"""
+    """获取 vulhub 路径，优先级：持久化配置 > 环境变量 > 默认值（结果缓存）"""
+    global _vulhub_path_cache
+    if _vulhub_path_cache is not None:
+        return _vulhub_path_cache
+
     if APP_CONFIG_FILE.exists():
         try:
             with open(APP_CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -32,6 +40,7 @@ def get_vulhub_path() -> Path:
             if saved_path:
                 p = Path(saved_path).resolve()
                 if p.exists() and p.is_dir():
+                    _vulhub_path_cache = p
                     return p
         except Exception:
             pass
@@ -40,13 +49,16 @@ def get_vulhub_path() -> Path:
     if env_path:
         p = Path(env_path).resolve()
         if p.exists() and p.is_dir():
+            _vulhub_path_cache = p
             return p
 
-    return Path('../vulhub').resolve()
+    _vulhub_path_cache = Path('../vulhub').resolve()
+    return _vulhub_path_cache
 
 
 def set_vulhub_path(new_path: str):
     """设置并持久化 vulhub 路径，返回 (success, message)"""
+    global _vulhub_path_cache
     try:
         p = Path(new_path).resolve()
         if not p.exists():
@@ -67,6 +79,13 @@ def set_vulhub_path(new_path: str):
         with open(APP_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
+        _vulhub_path_cache = p
         return True, str(p)
     except Exception as e:
         return False, f"保存配置失败: {str(e)}"
+
+
+def invalidate_vulhub_path_cache():
+    """路径变更或外部修改时清除内存缓存"""
+    global _vulhub_path_cache
+    _vulhub_path_cache = None

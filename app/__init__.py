@@ -30,8 +30,6 @@ def create_app():
     # 注入到 app.config 供路由使用
     app.config['ENV_CACHE'] = env_cache
     app.config['OPS'] = ops
-    app.config['VULHUB_PATH'] = get_vulhub_path()
-    app.config['CACHE_FILE'] = CACHE_FILE
 
     # 注册 Blueprint
     from app.routes.main import main_bp
