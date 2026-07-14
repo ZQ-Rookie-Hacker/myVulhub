@@ -7,18 +7,22 @@
   <link href="/static/style.css" rel="stylesheet" />
 </head>
 <body>
-  <div class="container" style="max-width:1200px;margin:32px auto;padding:0 16px;">
+  <div class="container">
     <div class="header">
-      <div class="title" style="font-size:36px;font-weight:800;display:flex;align-items:center;gap:12px;">🐳 Vulhub Manager</div>
-      <div style="display:flex;gap:8px;">
-        <button id="btnGitSync" class="btn btn-primary">🔄 Git 同步</button>
-        <button id="btnRescan" class="btn btn-primary">🔄 重新扫描</button>
+      <div class="title">
+        <span>[<span class="neon-diamond">◆</span>]</span>
+        <span>漏洞环境管理</span>
+        <span class="cursor-blink"></span>
+      </div>
+      <div class="header-actions">
+        <button id="btnGitSync" type="button" class="btn btn-primary">Git 同步</button>
+        <button id="btnRescan" type="button" class="btn btn-primary">重新扫描</button>
       </div>
     </div>
 
     <div class="toolbar">
-      <input id="searchInput" type="text" placeholder="搜索 CVE、名称或分类..." style="flex:1 1 500px" />
-      <select id="categoryFilter">
+      <input id="searchInput" type="text" placeholder="搜索 CVE、名称或分类..." />
+      <select id="categoryFilter" title="筛选分类">
         <option value="">所有分类</option>
       </select>
 
@@ -32,10 +36,10 @@
         <input id="downloadedFilter" type="checkbox" /> 已有镜像
       </label>
 
-      <div style="display:flex;align-items:center;gap:8px;margin-left:auto;padding:4px 12px;background:#f0f4ff;border-radius:10px;border:1px solid #d4d4f7;">
-        <span style="font-size:13px;color:#6366f1;font-weight:600;white-space:nowrap;">📂 Vulhub:</span>
-        <span id="vulhubPathDisplay" style="font-size:12px;color:#334155;font-family:monospace;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-        <button id="btnChangePath" class="btn" style="height:30px;padding:0 10px;font-size:12px;">更改</button>
+      <div class="path-bar">
+        <span class="path-label">Vulhub:</span>
+        <span id="vulhubPathDisplay" class="path-value"></span>
+        <button id="btnChangePath" type="button" class="btn">更改</button>
       </div>
     </div>
 
@@ -45,22 +49,22 @@
   </div>
 
   <!-- 详情 Modal -->
-  <div id="detailModal" class="modal" style="z-index:9998;">
+  <div id="detailModal" class="modal">
     <div class="modal-content">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h3 style="margin:0;">环境详情</h3>
-        <button class="btn" onclick="closeModal()">关闭</button>
+      <div class="modal-header">
+        <h3>环境详情</h3>
+        <button type="button" class="btn" onclick="closeModal()">关闭</button>
       </div>
-      <div id="modalContent" style="margin-top:10px;"></div>
+      <div id="modalContent"></div>
     </div>
   </div>
 
   <!-- 下载进度 Modal -->
-  <div id="progressModal" class="modal" style="z-index:9997;">
+  <div id="progressModal" class="modal">
     <div class="modal-content">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h3 style="margin:0;">下载镜像</h3>
-        <button class="btn" onclick="hideProgressModal()">关闭</button>
+      <div class="modal-header">
+        <h3>下载镜像</h3>
+        <button type="button" class="btn" onclick="hideProgressModal()">关闭</button>
       </div>
       <pre id="progressLog"></pre>
     </div>
@@ -71,7 +75,6 @@
     <div class="loading-box">处理中...</div>
   </div>
 
-  <!-- JS 按依赖顺序加载 -->
   <script src="/static/js/utils.js"></script>
   <script src="/static/js/core.js"></script>
   <script src="/static/js/env.js"></script>

@@ -25,7 +25,7 @@ function showChangePathDialog() {
     dialog.className = 'dialog-card';
     dialog.innerHTML = `
         <h3>📂 配置 Vulhub 路径</h3>
-        <p style="color:#6b7280;font-size:13px;margin:0 0 16px 0;">
+        <p style="color:var(--text-muted);font-size:12px;margin:0 0 16px 0;">
             请先克隆 vulhub 仓库到你想要的目录，然后在此输入路径。
         </p>
         <div style="margin-bottom:12px;">
@@ -34,8 +34,8 @@ function showChangePathDialog() {
         </div>
         <div id="pathValidationMsg" style="font-size:12px;margin-bottom:12px;min-height:18px;"></div>
         <div class="dialog-actions">
-            <button id="btnCancelPath" class="btn">取消</button>
-            <button id="btnSavePath" class="btn btn-primary">保存</button>
+            <button id="btnCancelPath" type="button" class="btn">取消</button>
+            <button id="btnSavePath" type="button" class="btn btn-primary">保存</button>
         </div>`;
 
     overlay.appendChild(dialog);
@@ -60,7 +60,7 @@ function showChangePathDialog() {
         const newPath = input.value.trim();
         if (!newPath) {
             msgEl.textContent = '请输入路径';
-            msgEl.style.color = '#ef4444';
+            msgEl.style.color = 'var(--neon-red)';
             return;
         }
         try {
@@ -81,11 +81,11 @@ function showChangePathDialog() {
                 await forceRescan();
             } else {
                 msgEl.textContent = data.error || '保存失败';
-                msgEl.style.color = '#ef4444';
+                msgEl.style.color = 'var(--neon-red)';
             }
         } catch (e) {
             msgEl.textContent = '请求失败: ' + e.message;
-            msgEl.style.color = '#ef4444';
+            msgEl.style.color = 'var(--neon-red)';
         }
     };
 
@@ -111,7 +111,7 @@ function showGitSyncModal() {
     dialog.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
             <h3 style="margin:0;">🔄 Git 同步</h3>
-            <button id="settingsBtn" class="btn-icon" title="Git 设置">⚙️</button>
+            <button id="settingsBtn" type="button" class="btn-icon" title="Git 设置">⚙</button>
         </div>
 
         <div style="margin-bottom:16px;">
@@ -124,24 +124,20 @@ function showGitSyncModal() {
         </div>
 
         <div class="settings-info">
-            <div style="display:flex;align-items:center;margin-bottom:8px;">
-                <span style="background:#007bff;color:#fff;padding:4px 8px;border-radius:4px;font-size:.8em;font-weight:600;margin-right:8px;">📋</span>
-                <span style="font-weight:600;color:#495057;">当前设置</span>
-            </div>
             <div class="settings-row">
                 <span class="settings-label">远程仓库:</span>
-                <span id="currentSettings" class="settings-value" style="background:rgba(0,123,255,.1);color:#0056b3;">https://github.com/vulhub/vulhub.git</span>
+                <span id="currentSettings" class="settings-value">https://github.com/vulhub/vulhub.git</span>
             </div>
             <div id="proxySettings" class="settings-row" style="display:none;">
                 <span class="settings-label">代理设置:</span>
-                <span class="settings-value" style="background:rgba(108,117,125,.1);color:#6c757d;">未启用</span>
+                <span class="settings-value">未启用</span>
             </div>
-            <div class="settings-hint">点击右上角 ⚙️ 图标可修改设置</div>
+            <div class="settings-hint">点击右上角 ⚙ 图标可修改设置</div>
         </div>
 
         <div class="dialog-actions">
-            <button id="btnCloseSync" class="btn">取消</button>
-            <button id="btnStartSync" class="btn btn-primary">开始同步</button>
+            <button id="btnCloseSync" type="button" class="btn">取消</button>
+            <button id="btnStartSync" type="button" class="btn btn-primary">开始同步</button>
         </div>`;
 
     overlay.appendChild(dialog);
@@ -224,8 +220,8 @@ function showGitSettingsModal() {
         ? 'git@github.com:vulhub/vulhub.git'
         : 'https://github.com/vulhub/vulhub.git';
     const placeholder = currentMethod === 'ssh'
-        ? '例如: git@github.com:vulhub/vulhub.git'
-        : '例如: https://github.com/vulhub/vulhub.git';
+        ? 'git@github.com:vulhub/vulhub.git'
+        : 'https://github.com/vulhub/vulhub.git';
 
     const overlay = document.createElement('div');
     overlay.id = 'gitSettingsOverlay';
@@ -249,8 +245,8 @@ function showGitSettingsModal() {
             </label>
         </div>` : ''}
         <div class="dialog-actions">
-            <button id="btnCancelSettings" class="btn">取消</button>
-            <button id="btnSaveSettings" class="btn btn-primary">保存设置</button>
+            <button id="btnCancelSettings" type="button" class="btn">取消</button>
+            <button id="btnSaveSettings" type="button" class="btn btn-primary">保存设置</button>
         </div>`;
 
     overlay.appendChild(dialog);
@@ -328,10 +324,10 @@ async function startGitSync() {
         if (syncModal) syncModal.remove();
 
         showProgressModal();
-        appendProgress(`[Info] 开始 Git 同步...`);
-        appendProgress(`[Info] 同步方式: ${effectiveMethod}`);
-        appendProgress(`[Info] 远程仓库: ${remoteUrl}`);
-        if (useProxy && method === 'https') appendProgress('[Info] 代理设置: 已启用 (proxychains4)');
+        appendProgress(`[信息] 开始 Git 同步...`);
+        appendProgress(`[信息] 同步方式: ${effectiveMethod}`);
+        appendProgress(`[信息] 远程仓库: ${remoteUrl}`);
+        if (useProxy && method === 'https') appendProgress('[信息] 代理设置: 已启用 (proxychains4)');
 
         const syncResp = await fetch('/api/git-sync', {
             method: 'POST',
@@ -341,33 +337,33 @@ async function startGitSync() {
         const result = await syncResp.json();
 
         if (result.success) {
-            appendProgress(`[Success] ${result.message || '同步成功'}`);
+            appendProgress(`[成功] ${result.message || '同步成功'}`);
             if (result.output) appendProgress(result.output);
 
             if (result.changes) {
-                appendProgress('\n[Info] ==================== 同步变更摘要 ====================');
+                appendProgress('\n[信息] ==================== 同步变更摘要 ====================');
                 if (result.changes.new) {
-                    appendProgress(`[Info] ✅ 新仓库初始化成功`);
-                    appendProgress(`[Info] 📦 总提交数: ${result.changes.total_commits}`);
-                    appendProgress(`[Info] 🐳 总环境数: ${result.changes.total_environments}`);
+                    appendProgress(`[成功] 新仓库初始化成功`);
+                    appendProgress(`[信息] 总提交数: ${result.changes.total_commits}`);
+                    appendProgress(`[信息] 总环境数: ${result.changes.total_environments}`);
                 } else {
-                    appendProgress(`[Info] ✅ 同步完成`);
-                    appendProgress(`[Info] 🔄 新增提交: ${result.changes.commits_ahead || 0}`);
-                    appendProgress(`[Info] 📊 文件变更: 修改=${result.changes.files_changed || 0}, 新增=${result.changes.files_added || 0}, 删除=${result.changes.files_deleted || 0}`);
-                    appendProgress(`[Info] 🐳 总环境数: ${result.changes.total_environments || 0}`);
+                    appendProgress(`[成功] 同步完成`);
+                    appendProgress(`[信息] 新增提交: ${result.changes.commits_ahead || 0}`);
+                    appendProgress(`[信息] 文件变更: 修改=${result.changes.files_changed || 0}, 新增=${result.changes.files_added || 0}, 删除=${result.changes.files_deleted || 0}`);
+                    appendProgress(`[信息] 总环境数: ${result.changes.total_environments || 0}`);
                     if (result.changes.changed_cves && result.changes.changed_cves.length > 0) {
-                        appendProgress('[Info] 🔥 变更的CVE环境:');
+                        appendProgress('[信息] 变更的CVE环境:');
                         result.changes.changed_cves.forEach(cve => {
-                            const emoji = cve.type === '新增' ? '🆕' : (cve.type === '删除' ? '🗑️' : '📝');
-                            appendProgress(`[Info]   ${emoji} ${cve.cve} (${cve.type}) - ${cve.path}`);
+                            const marker = cve.type === '新增' ? '[+]' : (cve.type === '删除' ? '[-]' : '[~]');
+                            appendProgress(`    ${marker} ${cve.cve} (${cve.type}) - ${cve.path}`);
                         });
                     }
                     if (result.latest_commit) {
-                        appendProgress(`[Info] 📝 最新提交: ${result.latest_commit.message}`);
-                        appendProgress(`[Info]   作者: ${result.latest_commit.author} | 时间: ${result.latest_commit.date} (${result.latest_commit.hash})`);
+                        appendProgress(`[信息] 最新提交: ${result.latest_commit.message}`);
+                        appendProgress(`    作者: ${result.latest_commit.author} | 时间: ${result.latest_commit.date} | ${result.latest_commit.hash}`);
                     }
                 }
-                appendProgress('[Info] =====================================================');
+                appendProgress('[信息] =====================================================');
             }
 
             setTimeout(() => {
@@ -376,14 +372,14 @@ async function startGitSync() {
                 forceRescan();
             }, 2000);
         } else {
-            appendProgress(`[Error] ${result.error || '同步失败'}`);
+            appendProgress(`[错误] ${result.error || '同步失败'}`);
             setTimeout(() => {
                 hideProgressModal();
                 showNotification(result.error || 'Git 同步失败', 'error');
             }, 2000);
         }
     } catch (error) {
-        appendProgress(`[Error] 同步异常: ${error.message}`);
+        appendProgress(`[错误] 同步异常: ${error.message}`);
         setTimeout(() => {
             hideProgressModal();
             showNotification('Git 同步异常: ' + error.message, 'error');

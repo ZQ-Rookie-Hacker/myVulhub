@@ -6,7 +6,7 @@
 function displayEnvironments(envs) {
     const list = document.getElementById('envList');
     try {
-        if (!Array.isArray(envs)) throw new Error('scan 返回不是数组');
+        if (!Array.isArray(envs)) throw new Error('扫描返回不是数组');
 
         filteredEnvironments = envs.slice();
 
@@ -53,7 +53,7 @@ function displayEnvironments(envs) {
             for (const [svc, port] of portEntries.slice(0, 2)) {
                 const tag = document.createElement('span');
                 tag.className = 'tag tag-port';
-                tag.textContent = `📌 ${svc}:${port}`;
+                tag.textContent = `${svc}:${port}`;
                 meta.appendChild(tag);
             }
             if (portEntries.length > 2) {
@@ -66,39 +66,41 @@ function displayEnvironments(envs) {
             if (env && env.has_exploit) {
                 const exp = document.createElement('span');
                 exp.className = 'tag tag-exploit';
-                exp.textContent = '💣 漏洞利用脚本';
+                exp.textContent = '漏洞利用脚本';
                 meta.appendChild(exp);
             }
 
             if (env && env.has_docker_images) {
                 const dockerTag = document.createElement('span');
                 dockerTag.className = 'tag tag-docker';
-                dockerTag.textContent = '🐳 已有镜像';
+                dockerTag.textContent = '已有镜像';
                 meta.appendChild(dockerTag);
             }
 
             const pathTag = document.createElement('span');
             pathTag.className = 'tag';
-            pathTag.textContent = `📁 ${env?.name || ''}`;
+            pathTag.textContent = env?.name || '';
             meta.appendChild(pathTag);
 
             const actions = document.createElement('div');
             actions.className = 'env-actions';
 
             const btnStartStop = document.createElement('button');
+            btnStartStop.type = 'button';
             if (status === 'running') {
                 btnStartStop.className = 'btn btn-danger';
                 btnStartStop.textContent = '⏹ 停止';
                 btnStartStop.onclick = () => stopEnv(env.name);
             } else {
                 btnStartStop.className = 'btn btn-success';
-                btnStartStop.textContent = '▶️ 启动';
+                btnStartStop.textContent = '▶ 启动';
                 btnStartStop.onclick = () => startEnv(env.name);
             }
             actions.appendChild(btnStartStop);
 
             if (status === 'running' && firstPort) {
                 const btnOpen = document.createElement('button');
+                btnOpen.type = 'button';
                 btnOpen.className = 'btn btn-primary';
                 btnOpen.textContent = '🌐 打开';
                 btnOpen.onclick = () => openEnv(firstPort);
@@ -107,6 +109,7 @@ function displayEnvironments(envs) {
 
             if (env && env.has_exploit) {
                 const btnExploit = document.createElement('button');
+                btnExploit.type = 'button';
                 btnExploit.className = 'btn';
                 btnExploit.textContent = '💣 漏洞利用脚本';
                 btnExploit.onclick = () => showExploit(env.name);
@@ -115,13 +118,15 @@ function displayEnvironments(envs) {
 
             if (env && env.has_docker_images) {
                 const btnRemoveImages = document.createElement('button');
+                btnRemoveImages.type = 'button';
                 btnRemoveImages.className = 'btn btn-danger';
-                btnRemoveImages.textContent = '🗑️ 删除镜像';
+                btnRemoveImages.textContent = '🗑 删除镜像';
                 btnRemoveImages.onclick = () => removeImages(env.name);
                 actions.appendChild(btnRemoveImages);
             }
 
             const btnDetail = document.createElement('button');
+            btnDetail.type = 'button';
             btnDetail.className = 'btn';
             btnDetail.textContent = '📖 详情';
             btnDetail.onclick = () => showDetail(env.name);
@@ -208,7 +213,7 @@ async function startEnv(name) {
         const ci = await fetch(`/api/check-images?name=${encodeURIComponent(name)}`).then(r => r.json());
         showLoading(false);
 
-        if (!ci.success) throw new Error(ci.error || "check-images 失败");
+        if (!ci.success) throw new Error(ci.error || "检查镜像失败");
         const missing = ci.missing || [];
 
         let useProxyForPull = false;
@@ -221,8 +226,8 @@ async function startEnv(name) {
             }
             useProxyForPull = shouldPull.useProxy;
             showProgressModal();
-            appendProgress(`[Info] 开始下载镜像：\n- ${missing.join("\n- ")}`);
-            appendProgress(`[Info] 使用${useProxyForPull ? 'proxychains4代理' : '直接连接'}拉取镜像...`);
+            appendProgress(`[信息] 开始下载镜像：\n- ${missing.join("\n- ")}`);
+            appendProgress(`[信息] 使用${useProxyForPull ? 'proxychains4代理' : '直接连接'}拉取镜像...`);
             await pullWithProgress(name, useProxyForPull);
         }
 
@@ -364,22 +369,22 @@ async function showExploit(name) {
         }
 
         let content = `<h2>漏洞利用脚本 - ${escapeHtml(name)}</h2>
-        <div style="background:#fef3c7;color:#78350f;padding:12px;border-radius:8px;margin:10px 0;">
-            ⚠️ <strong>警告</strong>：仅供学术研究与授权测试使用，使用者需自负法律责任
+        <div class="hint-box" style="border-left-color:var(--neon-red);">
+            ⚠ 警告：仅供学术研究与授权测试使用，使用者需自负法律责任
         </div>`;
 
         exploits.forEach(exploit => {
             content += `
-                <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:12px 0;">
-                    <h3 style="margin-top:0;">${escapeHtml(exploit.filename)}</h3>
+                <div style="border:1px solid var(--border-dim);border-radius:var(--radius);padding:12px;margin:12px 0;background:var(--bg-deep);">
+                    <h3 style="margin-top:0;color:var(--neon-cyan);">${escapeHtml(exploit.filename)}</h3>
                     <div style="margin:8px 0;">
                         <span class="tag">大小: ${exploit.size} 字节</span>
                         <span class="tag">行数: ${exploit.lines}</span>
                         <span class="tag">路径: ${escapeHtml(exploit.path)}</span>
                     </div>
-                    ${exploit.usage ? `<div style="background:#f3f4f6;padding:8px;border-radius:6px;margin:8px 0;">
-                        <strong>使用说明：</strong> ${escapeHtml(exploit.usage)}</div>` : ''}
-                    <h4>代码：</h4>
+                    ${exploit.usage ? `<div style="background:var(--bg-surface);padding:8px;border-radius:var(--radius);margin:8px 0;border:1px solid var(--border-dim);">
+                        <strong style="color:var(--neon-amber);">使用说明：</strong> ${escapeHtml(exploit.usage)}</div>` : ''}
+                    <h4 style="color:var(--neon-green);">代码：</h4>
                     <pre class="code-block" style="max-height:400px;overflow:auto;">${escapeHtml(exploit.content)}</pre>
                 </div>`;
         });
@@ -411,7 +416,7 @@ window.onclick = function(event) {
 
 // === 镜像管理 ===
 async function removeImages(name) {
-    if (!confirm(`确定要删除环境 "${name}" 的所有镜像吗？\n\n⚠️ 此操作不可逆！\n镜像删除后将需要重新下载。`)) return;
+    if (!confirm(`确定要删除环境 "${name}" 的所有镜像吗？\n\n⚠ 此操作不可逆！\n镜像删除后将需要重新下载。`)) return;
 
     showLoading(true);
     try {
@@ -451,10 +456,10 @@ function pullWithProgress(name, useProxy = false) {
             settled = true;
             es.close();
             if (ev.data === 'error') {
-                appendProgress('[Error] 镜像下载失败，请检查网络或代理配置');
+                appendProgress('[错误] 镜像下载失败，请检查网络或代理配置');
                 reject(new Error('pull 失败'));
             } else {
-                appendProgress('[OK] 镜像下载完成');
+                appendProgress('[完成] 镜像下载完成');
                 resolve();
             }
         });
@@ -462,7 +467,7 @@ function pullWithProgress(name, useProxy = false) {
             if (settled) return;
             settled = true;
             es.close();
-            appendProgress('[Error] 下载中断');
+            appendProgress('[错误] 下载中断');
             reject(new Error('pull 失败'));
         };
     });
@@ -496,7 +501,7 @@ function showImagePullDialog(title, message, missingImages) {
             imageList.className = 'image-list-box';
 
             const listTitle = document.createElement('h4');
-            listTitle.innerHTML = '📦 缺失的镜像:';
+            listTitle.innerHTML = '缺失的镜像:';
             imageList.appendChild(listTitle);
 
             const ul = document.createElement('ul');

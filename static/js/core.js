@@ -36,7 +36,7 @@ async function loadFromCache() {
         updateStats();
         updatePagination();
     } catch (error) {
-        console.error('加载缓存失败:', error);
+        console.error('cache load failed:', error);
         document.getElementById('envList').innerHTML = '<div class="empty">加载失败，请点击重新扫描</div>';
     } finally {
         showLoading(false);
@@ -45,7 +45,7 @@ async function loadFromCache() {
 
 // 强制重新扫描 — 直接利用 refresh-cache 返回的 count，不再冗余请求 scan
 async function forceRescan() {
-    if (!confirm('确定要重新扫描所有环境吗？这会清除缓存并重新检查所有环境。')) return;
+    if (!confirm('确定要重新扫描所有环境吗？\n这会清除缓存并重新检查所有环境。')) return;
 
     showLoading(true);
     try {
@@ -91,7 +91,7 @@ async function updateStats() {
         document.getElementById('stats').innerHTML =
             `<div class="stat-item"><div class="stat-value">${stats.total}</div><div class="stat-label">总环境</div></div>
              <div class="stat-item"><div class="stat-value">${stats.running}</div><div class="stat-label">运行中</div></div>
-             <div class="stat-item"><div class="stat-value">${stats.with_exploit}</div><div class="stat-label">漏洞利用脚本</div></div>
+             <div class="stat-item"><div class="stat-value">${stats.with_exploit}</div><div class="stat-label">漏洞利用</div></div>
              <div class="stat-item"><div class="stat-value">${stats.with_images || 0}</div><div class="stat-label">已有镜像</div></div>
              <div class="stat-item"><div class="stat-value">${Object.keys(stats.categories).length}</div><div class="stat-label">分类数</div></div>`;
     } catch (error) {
