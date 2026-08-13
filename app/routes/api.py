@@ -8,7 +8,10 @@ from flask import Blueprint, jsonify, request, current_app
 
 from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
 from app.utils.helpers import read_text, get_exploit_files, image_files
-from app.utils.cache import load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker, get_running_containers_json
+from app.utils.cache import (
+    load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker,
+    get_running_containers_json, update_persistent_cache_entry, invalidate_docker_state_cache,
+)
 from app.services.scanner import scan_environments_fs, get_env_dir_by_name, normalize_env_output
 from app.services.docker import _PULL_LOG, _PULL_EXIT
 
@@ -45,6 +48,25 @@ def _save_git_config(config):
         return True
     except Exception:
         return False
+
+
+def _update_env_status(name: str, status: str):
+    """启停成功后同步内存缓存与持久化缓存中的环境状态
+
+    即使内存缓存不可用（新进程/多 worker 部署），也直接更新持久化缓存文件，
+    保证页面重开或服务重启后启动信息不丢失。
+    同时失效 Docker 状态短期缓存，避免 reconcile 基于过期快照误判。
+    """
+    cache = current_app.config['ENV_CACHE']
+    if cache.is_valid():
+        for e in cache.get():
+            if e.get("name") == name:
+                e["status"] = status
+                break
+        save_persistent_cache(cache.get())
+    else:
+        update_persistent_cache_entry(name, status)
+    invalidate_docker_state_cache()
 
 
 # ====== API 路由 ======
@@ -201,39 +223,27 @@ def api_exploit(name: str):
 @api_bp.route('/start', methods=['POST'])
 def api_start():
     ops = current_app.config['OPS']
-    cache = current_app.config['ENV_CACHE']
     data = request.get_json(force=True)
     name = (data.get('name') or '').strip()
     if not name:
         return jsonify({"success": False, "error": "缺少环境名称"}), 400
     use_proxy = data.get('use_proxy', False)
     ok, info = ops.start(name, use_proxy=use_proxy)
-    if ok and cache.is_valid():
-        cached = cache.get()
-        for e in cached:
-            if e.get("name") == name:
-                e["status"] = "running"
-                break
-        save_persistent_cache(cached)
+    if ok:
+        _update_env_status(name, 'running')
     return jsonify({"success": ok, **(info or {})})
 
 
 @api_bp.route('/stop', methods=['POST'])
 def api_stop():
     ops = current_app.config['OPS']
-    cache = current_app.config['ENV_CACHE']
     data = request.get_json(force=True)
     name = (data.get('name') or '').strip()
     if not name:
         return jsonify({"success": False, "error": "缺少环境名称"}), 400
     ok, info = ops.stop(name)
-    if ok and cache.is_valid():
-        cached = cache.get()
-        for e in cached:
-            if e.get("name") == name:
-                e["status"] = "stopped"
-                break
-        save_persistent_cache(cached)
+    if ok:
+        _update_env_status(name, 'stopped')
     return jsonify({"success": ok, **(info or {})})
 
 
@@ -245,6 +255,9 @@ def api_remove_images():
     if not name:
         return jsonify({"success": False, "error": "缺少环境名称"}), 400
     ok, info = ops.remove_images(name)
+    if ok:
+        # rmi -f 可能杀死运行中容器，失效状态缓存
+        invalidate_docker_state_cache()
     return jsonify({"success": ok, **(info or {})})
 
 
@@ -420,6 +433,7 @@ def api_refresh_cache():
 
         out = [normalize_env_output(e) for e in envs]
 
+        invalidate_docker_state_cache()
         reconcile_cache_with_docker(out)
         cache.set(out)
         save_persistent_cache(out)
@@ -459,5 +473,6 @@ def api_vulhub_path():
     # 使用封装方法更新 Git 路径
     ops = current_app.config['OPS']
     ops.git_ops.set_path(Path(msg))
+    invalidate_docker_state_cache()
 
     return jsonify({"success": True, "path": msg, "message": "路径已更新，缓存已清除"})
