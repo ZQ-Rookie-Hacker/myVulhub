@@ -121,6 +121,55 @@ def _atomic_write_json(path: Path, payload: dict):
             pass
 
 
+def _parse_compose_ls_items(stdout: str) -> list:
+    """解析 docker compose ls --format json 的输出，兼容两种格式：
+
+    1. 单个 JSON 数组（部分 compose 版本输出整个数组，可能是多行美化格式）
+    2. JSONL（每行一个 JSON 对象）
+    仅保留 dict 条目，任何条目解析失败都不影响整体。
+    """
+    items = []
+    try:
+        parsed = json.loads(stdout)
+        if isinstance(parsed, list):
+            items = [o for o in parsed if isinstance(o, dict)]
+        elif isinstance(parsed, dict):
+            items = [parsed]
+        return items
+    except Exception:
+        pass
+
+    # 回退：按行解析（JSONL）
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            items.append(obj)
+    return items
+
+
+def _project_from_ls_item(obj: dict) -> dict:
+    """把 compose ls 的单个 JSON 条目归一化为 {"name", "running", "config_files"}
+
+    ConfigFiles 字段在不同版本可能是字符串（多个文件以逗号连接）或数组。
+    """
+    raw_config = obj.get("ConfigFiles") or ""
+    if isinstance(raw_config, list):
+        parts = [str(p) for p in raw_config]
+    else:
+        parts = str(raw_config).split(',')
+    return {
+        "name": str(obj.get("Name") or "").strip().lower(),
+        "running": bool(re.match(r'^running', str(obj.get("Status") or "").strip(), re.IGNORECASE)),
+        "config_files": [_norm_path(p) for p in parts if p.strip()],
+    }
+
+
 def _get_compose_ls_projects():
     """通过 docker compose ls 获取 Compose 项目列表（带 2 秒短期缓存）
 
@@ -160,22 +209,12 @@ def _get_compose_ls_projects():
         if result.returncode != 0:
             continue
 
-        items = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except Exception:
-                continue
-            raw_config = obj.get("ConfigFiles") or ""
-            items.append({
-                "name": (obj.get("Name") or "").strip().lower(),
-                "running": bool(re.match(r'^running', (obj.get("Status") or "").strip(), re.IGNORECASE)),
-                "config_files": [_norm_path(p) for p in raw_config.split(',') if p.strip()],
-            })
-        projects = items
+        try:
+            projects = [_project_from_ls_item(o) for o in _parse_compose_ls_items(result.stdout)]
+        except Exception as e:
+            logger.warning(f"docker compose ls 输出解析失败，Compose 项目状态视为未知: {e}")
+            projects = None
+            break
         authoritative = use_all
         break
 
@@ -342,9 +381,20 @@ def update_persistent_cache_entry(name: str, status: str) -> bool:
 
 
 def reconcile_cache_with_docker(environments) -> bool:
-    """通过 Docker 实际状态同步缓存中环境的状态
+    """通过 Docker 实际状态同步缓存中环境的状态（带整体异常保护）
 
-    信号按可靠性分层（任一命中即采用）：
+    状态同步是辅助功能：任何解析/查询异常都不能让 /api/scan 等列表接口失败，
+    异常时保留缓存状态并返回 False。
+    """
+    try:
+        return _reconcile_cache_with_docker(environments)
+    except Exception as e:
+        logger.error(f"Docker 状态同步异常（跳过，保留缓存状态）: {e}")
+        return False
+
+
+def _reconcile_cache_with_docker(environments) -> bool:
+    """reconcile 实现。信号按可靠性分层（任一命中即采用）：
     1. docker compose ls --all：compose 文件路径精确匹配 / 项目名变体匹配
        → 可同时给出 running 与 stopped，最权威
     2. docker ps 项目标签（com.docker.compose.project）项目名变体匹配 → running

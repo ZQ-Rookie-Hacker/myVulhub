@@ -9,6 +9,7 @@ from unittest.mock import patch
 from app.utils import cache as cache_mod
 from app.utils.cache import (
     _norm_path, _project_name_variants, _matches,
+    _parse_compose_ls_items, _project_from_ls_item,
     reconcile_cache_with_docker, update_persistent_cache_entry,
 )
 
@@ -203,6 +204,59 @@ class TestDockerStateCacheRace(unittest.TestCase):
         with patch.object(cache_mod.subprocess, 'run', fake_run):
             cache_mod._get_compose_ls_projects()
         self.assertEqual(calls["n"], 2)
+
+
+class TestComposeLsParsing(unittest.TestCase):
+    """docker compose ls --format json 两种输出格式兼容"""
+    def test_json_array_format(self):
+        """部分 compose 版本输出单个 JSON 数组（用户服务器实际格式）"""
+        stdout = json.dumps([
+            {"Name": "ssti", "Status": "running(1)", "ConfigFiles": "/v/flask/ssti/docker-compose.yml"},
+            {"Name": "weblogic", "Status": "exited(1)", "ConfigFiles": "/v/weblogic/weak_password/docker-compose.yml"},
+        ])
+        items = _parse_compose_ls_items(stdout)
+        self.assertEqual(len(items), 2)
+        proj = _project_from_ls_item(items[0])
+        self.assertTrue(proj["running"])
+        self.assertEqual(proj["config_files"], ["/v/flask/ssti/docker-compose.yml"])
+
+    def test_json_array_pretty_printed(self):
+        stdout = json.dumps(
+            [{"Name": "ssti", "Status": "running(1)", "ConfigFiles": "/x/docker-compose.yml"}],
+            indent=2
+        )
+        items = _parse_compose_ls_items(stdout)
+        self.assertEqual(len(items), 1)
+
+    def test_jsonl_format(self):
+        stdout = '{"Name":"a","Status":"running(1)","ConfigFiles":"/a/docker-compose.yml"}\n' \
+                 '{"Name":"b","Status":"exited(1)","ConfigFiles":"/b/docker-compose.yml"}\n'
+        items = _parse_compose_ls_items(stdout)
+        self.assertEqual(len(items), 2)
+
+    def test_config_files_as_list(self):
+        proj = _project_from_ls_item({
+            "Name": "ssti", "Status": "running(1)",
+            "ConfigFiles": ["/x/docker-compose.yml", "/x/override.yml"]
+        })
+        self.assertEqual(proj["config_files"], ["/x/docker-compose.yml", "/x/override.yml"])
+
+    def test_garbage_lines_ignored(self):
+        stdout = 'not-json\n{"Name":"a","Status":"running(1)","ConfigFiles":""}\n'
+        items = _parse_compose_ls_items(stdout)
+        self.assertEqual(len(items), 1)
+
+
+class TestReconcileCrashSafety(unittest.TestCase):
+    """Docker 状态同步任何异常都不能拖垮列表接口"""
+    def setUp(self):
+        cache_mod.invalidate_docker_state_cache()
+
+    def test_reconcile_exception_is_contained(self):
+        envs = [_env('flask/ssti', 'running')]
+        with patch.object(cache_mod, '_get_compose_ls_projects', side_effect=Exception('boom')):
+            self.assertFalse(reconcile_cache_with_docker(envs))
+        self.assertEqual(envs[0]['status'], 'running')  # 状态未被破坏
 
 
 class TestDockerStateCacheTTL(unittest.TestCase):
