@@ -22,38 +22,33 @@ DOCKER_IMAGE_CHECK_TIMEOUT = 5
 DOCKER_PS_TIMEOUT = 10
 GIT_OPERATION_TIMEOUT = 120
 
-# ---- vulhub 路径（带内存缓存，避免每次读磁盘） ----
-_vulhub_path_cache = None
+# ---- vulhub 路径解析（每次调用都实时解析，不做缓存） ----
+# 不缓存的原因：配置可能在运行时被 Web UI 修改、被外部编辑、
+# 或被其他 worker 进程更新；缓存旧值会导致"更改路径后仍扫描旧目录"。
+# 解析成本仅为一次小文件的读取 + 存在性检查，可忽略。
 
 
 def get_vulhub_path() -> Path:
-    """获取 vulhub 路径，优先级：持久化配置 > 环境变量 > 默认值（结果缓存）"""
-    global _vulhub_path_cache
-    if _vulhub_path_cache is not None:
-        return _vulhub_path_cache
-
+    """获取 vulhub 路径，优先级：持久化配置 > 环境变量 > 默认值"""
     if APP_CONFIG_FILE.exists():
         try:
             with open(APP_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             saved_path = config.get('vulhub_path')
             if saved_path:
-                p = Path(saved_path).resolve()
+                p = Path(saved_path).expanduser().resolve()
                 if p.exists() and p.is_dir():
-                    _vulhub_path_cache = p
                     return p
         except Exception:
             pass
 
     env_path = os.environ.get('VULHUB_PATH')
     if env_path:
-        p = Path(env_path).resolve()
+        p = Path(env_path).expanduser().resolve()
         if p.exists() and p.is_dir():
-            _vulhub_path_cache = p
             return p
 
-    _vulhub_path_cache = Path('../vulhub').resolve()
-    return _vulhub_path_cache
+    return Path('../vulhub').resolve()
 
 
 def get_configured_vulhub_path() -> str:
@@ -81,10 +76,13 @@ def get_configured_vulhub_path() -> str:
 
 
 def set_vulhub_path(new_path: str):
-    """设置并持久化 vulhub 路径，返回 (success, message)"""
-    global _vulhub_path_cache
+    """设置并持久化 vulhub 路径，返回 (success, message)
+
+    get_vulhub_path 每次调用都实时读取配置文件，因此写入后
+    本进程与所有其他 worker 进程立即生效，无需额外失效缓存。
+    """
     try:
-        p = Path(new_path).resolve()
+        p = Path(new_path).expanduser().resolve()
         if not p.exists():
             return False, f"路径不存在: {p}"
         if not p.is_dir():
@@ -103,13 +101,6 @@ def set_vulhub_path(new_path: str):
         with open(APP_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
-        _vulhub_path_cache = p
         return True, str(p)
     except Exception as e:
         return False, f"保存配置失败: {str(e)}"
-
-
-def invalidate_vulhub_path_cache():
-    """路径变更或外部修改时清除内存缓存"""
-    global _vulhub_path_cache
-    _vulhub_path_cache = None

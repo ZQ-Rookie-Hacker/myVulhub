@@ -12,7 +12,12 @@ class GitOperations:
     """Git 操作类"""
 
     def __init__(self, vulhub_path: Path = None):
-        self.vulhub_path = vulhub_path or get_vulhub_path()
+        # 显式传入的路径固定使用；未传入时每次动态解析当前配置，
+        # 避免路径变更后仍操作旧目录
+        self.vulhub_path = vulhub_path
+
+    def _resolve_path(self) -> Path:
+        return self.vulhub_path or get_vulhub_path()
 
     def set_path(self, new_path: Path):
         """更新 vulhub 路径（供路径变更时外部调用）"""
@@ -21,7 +26,8 @@ class GitOperations:
 
     @handle_git_errors
     def sync_vulhub(self, method: str = "https", remote_url: str = None) -> Tuple[bool, Dict[str, Any]]:
-        if not self.vulhub_path.exists():
+        path = self._resolve_path()
+        if not path.exists():
             logger.error("Vulhub目录不存在")
             return False, {"error": "Vulhub 目录不存在"}
 
@@ -38,7 +44,7 @@ class GitOperations:
         logger.info(f"开始同步Vulhub仓库，方法: {method}, 远程URL: {remote_url}")
 
         try:
-            is_new_repo = not (self.vulhub_path / ".git").exists()
+            is_new_repo = not (path / ".git").exists()
             if is_new_repo:
                 return self._init_and_sync(remote_url, use_proxychains)
 
@@ -80,8 +86,9 @@ class GitOperations:
 
     def _init_and_sync(self, remote_url: str, use_proxychains: bool = False) -> Tuple[bool, Dict[str, Any]]:
         try:
+            path = self._resolve_path()
             # 本地操作（已初始化则跳过）
-            if not (self.vulhub_path / ".git").exists():
+            if not (path / ".git").exists():
                 ok, out, err = self._run_git(["init"], use_proxychains=False)
                 if not ok:
                     return False, {"error": f"Git 初始化失败: {err}"}
@@ -261,7 +268,7 @@ class GitOperations:
         try:
             result = subprocess.run(
                 cmd,
-                cwd=str(self.vulhub_path),
+                cwd=str(self._resolve_path()),
                 check=False,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
