@@ -205,6 +205,19 @@ class TestDockerStateCacheRace(unittest.TestCase):
         self.assertEqual(calls["n"], 2)
 
 
+class TestDockerStateCacheTTL(unittest.TestCase):
+    """失败结果缓存 30 秒（避免每次请求阻塞），成功结果 2 秒"""
+    def test_failure_cached_30s(self):
+        cache = {"data": None, "ts": 1000000}
+        self.assertTrue(cache_mod._cache_fresh(cache, 1000000 + 29000))
+        self.assertFalse(cache_mod._cache_fresh(cache, 1000000 + 31000))
+
+    def test_success_cached_2s(self):
+        cache = {"data": set(), "ts": 1000000}
+        self.assertTrue(cache_mod._cache_fresh(cache, 1000000 + 1000))
+        self.assertFalse(cache_mod._cache_fresh(cache, 1000000 + 3000))
+
+
 class TestUpdatePersistentCacheEntry(unittest.TestCase):
     def test_update_existing_entry(self):
         with tempfile.TemporaryDirectory() as d:

@@ -81,8 +81,9 @@ async function loadFromCache() {
 }
 
 // 强制重新扫描 — 直接利用 refresh-cache 返回的 count，不再冗余请求 scan
-async function forceRescan() {
-    if (!confirm('确定要重新扫描所有环境吗？\n这会清除缓存并重新检查所有环境。')) return;
+// skipConfirm：改路径后由流程自动触发，无需二次确认（避免用户取消后缓存已被清空、列表停留为空）
+async function forceRescan(skipConfirm = false) {
+    if (!skipConfirm && !confirm('确定要重新扫描所有环境吗？\n这会清除缓存并重新检查所有环境。')) return;
 
     showLoading(true);
     try {

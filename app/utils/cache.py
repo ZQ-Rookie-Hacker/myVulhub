@@ -7,19 +7,29 @@ import subprocess
 import threading
 from pathlib import Path
 
-from app.config import get_vulhub_path, CACHE_FILE, CACHE_TTL_MS, DOCKER_PS_TIMEOUT, logger
+from app.config import get_vulhub_path, CACHE_FILE, CACHE_TTL_MS, DOCKER_PS_TIMEOUT, DOCKER_COMPOSE_LS_TIMEOUT, logger
 from app.utils.helpers import now_ms
 
 # Docker 状态短期缓存，避免同一请求周期内多次调用。
 # 值语义：data=None 表示"尚未获取或获取失败（状态未知）"，
 #         data=set()/[] 表示"确认无结果"，两者必须严格区分，
 #         否则 Docker 瞬时故障会把所有 running 状态误清空。
-# 失败结果同样缓存 TTL 时间，避免 Docker 不可用时每次请求都阻塞等待超时。
-_DOCKER_STATE_CACHE_TTL_MS = 2000  # 2 秒
+# 成功结果缓存 2 秒；失败结果缓存 30 秒——Docker 缓慢/不可用时，
+# 若失败也按 2 秒过期，每次页面加载都会重新阻塞在查询超时上，
+# 页面表现为"列表一直出不来"。
+_DOCKER_STATE_CACHE_TTL_MS = 2000        # 成功结果 2 秒
+_DOCKER_FAILURE_CACHE_TTL_MS = 30000     # 失败结果 30 秒
 
 _docker_ps_cache = {"data": None, "ts": 0}
 _docker_compose_ls_cache = {"data": None, "ts": 0, "authoritative": False}
 _docker_project_labels_cache = {"data": None, "ts": 0}
+
+
+def _cache_fresh(cache, now) -> bool:
+    """短期缓存是否命中：成功结果 2 秒，失败（data=None）结果 30 秒"""
+    if now - cache["ts"] < _DOCKER_STATE_CACHE_TTL_MS:
+        return True
+    return cache["data"] is None and now - cache["ts"] < _DOCKER_FAILURE_CACHE_TTL_MS
 
 
 class EnvCache:
@@ -62,7 +72,7 @@ def _get_running_container_names():
     global _docker_ps_cache
     cache = _docker_ps_cache
     now = now_ms()
-    if now - cache["ts"] < _DOCKER_STATE_CACHE_TTL_MS:
+    if _cache_fresh(cache, now):
         return cache["data"]
 
     names = None
@@ -123,12 +133,14 @@ def _get_compose_ls_projects():
     global _docker_compose_ls_cache
     cache = _docker_compose_ls_cache
     now = now_ms()
-    if now - cache["ts"] < _DOCKER_STATE_CACHE_TTL_MS:
+    if _cache_fresh(cache, now):
         return cache["data"], cache["authoritative"]
 
     projects = None
     authoritative = False
-    # 优先 --all（全量清单，最权威）；旧版本不支持时退化为仅运行中项目清单
+    # 优先 --all（全量清单，最权威）；旧版本不支持时退化为仅运行中项目清单。
+    # 超时较 docker ps 更短：该命令在部分环境可能很慢，失败后结果会缓存 30 秒，
+    # 不会让每次页面加载都阻塞。
     for use_all in (True, False):
         cmd = ['docker', 'compose', 'ls', '--format', 'json']
         if use_all:
@@ -140,7 +152,7 @@ def _get_compose_ls_projects():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=DOCKER_PS_TIMEOUT
+                timeout=DOCKER_COMPOSE_LS_TIMEOUT
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             logger.warning(f"docker compose ls 执行失败，Compose 项目状态视为未知: {e}")
@@ -187,7 +199,7 @@ def _get_project_labels():
     global _docker_project_labels_cache
     cache = _docker_project_labels_cache
     now = now_ms()
-    if now - cache["ts"] < _DOCKER_STATE_CACHE_TTL_MS:
+    if _cache_fresh(cache, now):
         return cache["data"]
 
     labels = None

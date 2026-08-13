@@ -84,7 +84,7 @@ function showChangePathDialog() {
                 }
                 showNotification('Vulhub 路径已更新，正在重新扫描...', 'success');
                 closeOverlay();
-                await forceRescan();
+                await forceRescan(true);
             } else {
                 msgEl.textContent = data.error || '保存失败';
                 msgEl.style.color = 'var(--neon-red)';
