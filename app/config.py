@@ -56,6 +56,30 @@ def get_vulhub_path() -> Path:
     return _vulhub_path_cache
 
 
+def get_configured_vulhub_path() -> str:
+    """获取配置的 vulhub 路径原始值（不做存在性过滤，用于前端诊断展示）
+
+    优先级与 get_vulhub_path 一致：持久化配置 > 环境变量 > 默认值。
+    get_vulhub_path 在配置的路径不存在时会静默回退，
+    用本函数把真实配置值暴露给 /api/vulhub-path，便于排查"列表为空"问题。
+    """
+    if APP_CONFIG_FILE.exists():
+        try:
+            with open(APP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            saved_path = config.get('vulhub_path')
+            if saved_path:
+                return str(Path(saved_path).resolve())
+        except Exception:
+            pass
+
+    env_path = os.environ.get('VULHUB_PATH')
+    if env_path:
+        return str(Path(env_path).resolve())
+
+    return str(Path('../vulhub').resolve())
+
+
 def set_vulhub_path(new_path: str):
     """设置并持久化 vulhub 路径，返回 (success, message)"""
     global _vulhub_path_cache

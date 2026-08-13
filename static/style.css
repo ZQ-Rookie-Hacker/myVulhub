@@ -233,6 +233,11 @@ body::after {
     white-space: nowrap;
 }
 
+.path-bar .path-value.path-missing {
+    color: var(--neon-red);
+    font-weight: 600;
+}
+
 .path-bar .btn {
     height: 26px;
     padding: 0 10px;

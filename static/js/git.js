@@ -10,7 +10,13 @@ async function loadVulhubPath() {
         const display = document.getElementById('vulhubPathDisplay');
         if (display && data.path) {
             display.textContent = data.path;
-            display.title = data.path;
+            if (data.exists === false) {
+                display.classList.add('path-missing');
+                display.title = `路径不存在: ${data.configured_path || data.path}（点击“更改”重新配置）`;
+            } else {
+                display.classList.remove('path-missing');
+                display.title = data.path;
+            }
         }
     } catch (e) {
         console.error('加载 vulhub 路径失败:', e);

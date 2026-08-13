@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from flask import Blueprint, jsonify, request, current_app
 
-from app.config import get_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
+from app.config import get_vulhub_path, get_configured_vulhub_path, set_vulhub_path, CACHE_FILE, GIT_CONFIG_FILE, logger
 from app.utils.helpers import read_text, get_exploit_files, image_files
 from app.utils.cache import (
     load_persistent_cache, save_persistent_cache, reconcile_cache_with_docker,
@@ -94,7 +94,7 @@ def api_scan():
     try:
         envs = scan_environments_fs()
     except FileNotFoundError:
-        logger.warning(f"Vulhub路径不存在，返回空列表")
+        logger.warning(f"Vulhub路径不存在: {get_vulhub_path()}，返回空列表")
         return jsonify([])
     except Exception as e:
         logger.error(f"扫描失败: {e}")
@@ -118,7 +118,8 @@ def api_stats():
     with_images = sum(1 for x in data if x.get("has_docker_images"))
     cats = {}
     for x in data:
-        cats[x["category"]] = cats.get(x["category"], 0) + 1
+        cat = x.get("category") or "unknown"
+        cats[cat] = cats.get(cat, 0) + 1
     return jsonify({
         "total": total,
         "running": running,
@@ -446,11 +447,19 @@ def api_refresh_cache():
 @api_bp.route('/vulhub-path', methods=['GET', 'POST'])
 def api_vulhub_path():
     if request.method == 'GET':
-        current_path = str(get_vulhub_path())
+        current_path = get_vulhub_path()
+        has_envs = False
+        if current_path.exists():
+            try:
+                has_envs = next(current_path.rglob('docker-compose.yml'), None) is not None
+            except Exception:
+                pass
         return jsonify({
             "success": True,
-            "path": current_path,
-            "exists": Path(current_path).exists()
+            "path": str(current_path),
+            "exists": current_path.exists(),
+            "configured_path": get_configured_vulhub_path(),
+            "has_environments": has_envs
         })
 
     data = request.get_json(force=True)
